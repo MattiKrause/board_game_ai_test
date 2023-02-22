@@ -70,3 +70,11 @@ impl <G: MonteCarloGame> GamePlayer<G> for PlayerInput where G::MOVE: TryFrom<u3
         }
     }
 }
+
+pub struct RecordedMoves<T>(pub Vec<T>);
+
+impl <G: MonteCarloGame> GamePlayer<G> for RecordedMoves<G::MOVE> {
+    fn make_move(&mut self, _game: &G, _enemy_move: Option<G::MOVE>) -> G::MOVE {
+        self.0.remove(0)
+    }
+}

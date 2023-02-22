@@ -6,26 +6,28 @@ use std::rc::Rc;
 use arrayvec::ArrayVec;
 use crate::ai_infra::GameStrategy;
 use crate::monte_carlo_game::{MonteCarloGame, Winner};
+use crate::monte_carlo_v2::arena::{Arena, ArenaHandle};
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
-struct MCNodeId(u64);
+//#[derive(Clone, Eq, PartialEq, Hash)]
+//struct MCNodeId<T: MonteCarloGame>(ArenaHandle<T>);
+
+type MCNodeId<T> = ArenaHandle<MCNode<T>>;
 
 struct NodeSetId(u64);
 
 struct MoveSetId<M>(PhantomData<M>);
 
 struct MCNode<T: MonteCarloGame> {
-    predecessors: Vec<MCNodeId>,
-    moves: Box<[(MCNodeId, T::MOVE)]>,
+    predecessors: Vec<MCNodeId<T>>,
+    moves: Box<[(MCNodeId<T>, T::MOVE)]>,
     game_state: Rc<T>,
     visited_amount: u64,
     score_balance: f64,
 }
 
 struct MCContext<T: MonteCarloGame> {
-    mappings: HashMap<Rc<T>, MCNodeId>,
-    node_store: HashMap<MCNodeId, MCNode<T>>,
-    max_id: MCNodeId,
+    mappings: HashMap<Rc<T>, MCNodeId<T>>,
+    node_store: Arena<MCNode<T>>
 }
 
 /*struct NodeSetStore {
@@ -100,35 +102,33 @@ impl<T: MonteCarloGame> MoveSetStore<T> {
     fn get(&self, id: &MoveSetId<T>) -> Option<&[(MCNodeId, T::MOVE)]> {}
 }
 */
-impl MCNodeId {
-    fn invalid() -> Self {
-        Self(u64::MAX)
-    }
-}
 
 impl<T: MonteCarloGame> MCContext<T> {
-    fn alloc_node(&mut self, node: MCNode<T>) -> MCNodeId {
-        let id = self.max_id.clone();
-        self.max_id.0 += 1;
+    fn alloc_node(&mut self, node: MCNode<T>) -> MCNodeId<T> {
         let node_game = node.game_state.clone();
-        self.node_store.insert(id.clone(), node);
+        let id = self.node_store.insert(node);
         self.mappings.insert(node_game, id.clone());
         id
     }
 }
 
-fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId, context: &mut MCContext<T>, player_count: u8, buf: &mut Vec<(MCNodeId, f64)>) where T: Eq + Hash {
+fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId<T>, context: &mut MCContext<T>, player_count: u8, buf: &mut Vec<(MCNodeId<T>, f64)>) where T: Eq + Hash {
     let mut node = context.node_store.get(&root).expect("root node not given");
     let mut current_id = root;
     let mut current_player_num = 0;
     loop {
         // select next move;
 
+
         let next_move_i = if let Some(m) = select_next::<T>(node, &node.moves, current_player_num == 0, context, 2.0) { m } else { break; };
         let next_move = &node.moves[next_move_i];
+        let n1 = &next_move.0;
 
-
-        (current_id, node) = if context.node_store.contains_key(&next_move.0) {
+        if next_move_i == 7 {
+            let x = 1;
+        }
+//0x55d8ae26c6c0
+        (current_id, node) = if context.node_store.get(&next_move.0).is_some() {
             //Initialised
             let next = context.node_store.get(&next_move.0).unwrap();
             (next_move.0.clone(), next)
@@ -162,6 +162,7 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId, context: &mut MCContext<T>
                     visited_amount: 0,
                     score_balance: initial_score,
                 };
+
                 let next_id = context.alloc_node(new_node);
 
                 context.node_store.get_mut(&current_id).unwrap().moves.get_mut(next_move_i).unwrap().0 = next_id.clone();
@@ -178,7 +179,7 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId, context: &mut MCContext<T>
     backtrack_from_leaf(current_id, context, buf);
 }
 
-fn select_next<T: MonteCarloGame>(parent: &MCNode<T>, moves: &[(MCNodeId, T::MOVE)], ai_turn: bool, context: &MCContext<T>, c: f64) -> Option<usize> {
+fn select_next<T: MonteCarloGame>(parent: &MCNode<T>, moves: &[(MCNodeId<T>, T::MOVE)], ai_turn: bool, context: &MCContext<T>, c: f64) -> Option<usize> {
     let mut i_max = usize::MAX;
     let mut max_score = f64::NEG_INFINITY;
 
@@ -211,7 +212,7 @@ fn compute_initial_score(ai_at_turn: bool, win_state: Option<Winner>) -> (bool, 
     }
 }
 
-fn backtrack_from_leaf<T: MonteCarloGame>(leaf: MCNodeId, context: &mut MCContext<T>, buf: &mut Vec<(MCNodeId, f64)>) {
+fn backtrack_from_leaf<T: MonteCarloGame>(leaf: MCNodeId<T>, context: &mut MCContext<T>, buf: &mut Vec<(MCNodeId<T>, f64)>) {
     buf.clear();
     {
         let leaf = context.node_store.get(&leaf).unwrap();
@@ -240,8 +241,7 @@ fn backtrack_from_leaf<T: MonteCarloGame>(leaf: MCNodeId, context: &mut MCContex
 fn select_move<T: MonteCarloGame>(state: &T, times: usize) -> T::MOVE {
     let mut context = MCContext {
         mappings: HashMap::new(),
-        node_store: HashMap::new(),
-        max_id: MCNodeId(0),
+        node_store: Arena::new(),
     };
     let root_node = {
         let game_state = Rc::new(state.clone());
@@ -259,11 +259,14 @@ fn select_move<T: MonteCarloGame>(state: &T, times: usize) -> T::MOVE {
         context.alloc_node(node)
     };
     let mut buf = Vec::new();
-    for _ in 0..times {
+    for i in 0..times {
+        if i == 7 {
+            let x = 1;
+        }
         playoff(root_node.clone(), &mut context, 2, &mut buf);
     }
-    dbg!(context.node_store[&root_node].visited_amount);
-    context.node_store[&root_node].moves.iter()
+    dbg!(context.node_store.get(&root_node).unwrap().visited_amount);
+    context.node_store.get(&root_node).unwrap().moves.iter()
         .filter_map(|(id, mov)| context.node_store.get(id).zip(Some(mov)))
         .map(|(node, mov)| (node.score_balance / (node.visited_amount as f64), mov))
         .max_by(|(score1, _), (score2, _)| score1.total_cmp(score2))

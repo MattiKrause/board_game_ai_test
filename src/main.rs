@@ -1,5 +1,7 @@
+use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use crate::ai_infra::*;
-use crate::line_four_8x8::LineFour8x8;
+use crate::line_four_8x8::{LineFour8x8, LineFour8x8Index};
 use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
@@ -24,7 +26,8 @@ fn main() {
         //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward2))),
         //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
         Box::new(MonteCarloV2I1::strategy_of(100000)),
-        Box::new(PlayerInput)
+        Box::new(PlayerInput),
+        //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
     ];
     run_game::<LineFour8x8>(config);
 }
