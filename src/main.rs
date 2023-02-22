@@ -18,6 +18,7 @@ mod old_monte_carlo;
 mod monte_carlo_v2;
 
 fn main() {
+    dbg!(std::mem::size_of::<LineFour8x8>());
     println!("Hello, world!");
     let half_wr = WinIdentFactory;
     //let win_reward1 = WinReward::new(0.5, 1.0, -1.1);

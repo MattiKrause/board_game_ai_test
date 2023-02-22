@@ -5,7 +5,6 @@ use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
 pub struct LineFourGame {
     set_by_p1: u64,
     set_by_p2: u64,
-    turn: TwoPlayer
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -36,7 +35,7 @@ impl LineFourGame {
         let mut set_index = (((self.set_by_p1 | self.set_by_p2) >> index * 6) & 0b111111).trailing_ones();
         if set_index >= 6 { return Err(()) }
         set_index += (index as u32) * 6;
-        let pnum = self.turn as u8 as u64;
+        let pnum = self.player() as u8 as u64;
         self.set_by_p1 |= pnum << set_index;
         self.set_by_p2 |= (pnum ^ 0b1) << set_index;
         let board = if pnum == 1 { self.set_by_p1 } else { self.set_by_p2 };
@@ -46,7 +45,6 @@ impl LineFourGame {
         } else if self.set_by_p2 | self.set_by_p1 == TIE {
             return Ok(Some(Winner::TIE))
         } else {
-            self.turn = self.turn.next();
             Ok(None)
         }
     }
@@ -109,7 +107,6 @@ impl MonteCarloGame for  LineFourGame {
         Self {
             set_by_p1: 0,
             set_by_p2: 0,
-            turn: TwoPlayer::P1
         }
     }
 
@@ -134,7 +131,11 @@ impl MonteCarloGame for  LineFourGame {
     }
 
     fn player(&self) -> TwoPlayer {
-        self.turn
+        if self.set_by_p1.count_ones() - self.set_by_p2.count_ones() == 0 {
+            TwoPlayer::P1
+        } else {
+            TwoPlayer::P2
+        }
     }
 }
 

@@ -4,9 +4,9 @@ use crate::{MonteCarloGame, TwoPlayer, Winner};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct LineFour8x8 {
+    //Layout bytes = rows, first byte = first row, etc.
     set_by_p1: u64,
     set_by_p2: u64,
-    player: TwoPlayer
 }
 
 macro_rules! column_index {
@@ -62,19 +62,32 @@ impl <M: TryFrom<u8>> Iterator for AdHocMoves<M> {
 
 impl LineFour8x8 {
     fn won(board: u64) -> bool {
-        const WON_ROW: u64 = 0xF8F8_F8F8_F8F8_F8F8;
+        // check vertical wins by ANDing each slot the three slots BEFORE it, only check the last 5 slots,
+        // since the first 3 are polluted by the elements from the last row
+        const WON_ROW: u64 = 0xF8_F8_F8_F8_F8_F8_F8_F8;
         if (board & board << 01 & board << 02 & board << 03) & WON_ROW > 0 {
             return true
         }
-        const WON_COLUMN: u64 = 0xFFFF_FFFF_FF00_0000;
+
+        // check horizontal wins by ANDing each row and the three row BEFORE it, which effectively
+        // ANDs the slots of the column. The first three columns cannot be ANDed with four columns so
+        // they are skipped
+        const WON_COLUMN: u64 = 0xFF_FF_FF_FF_FF_00_00_00;
         if (board & board << 08 & board << 16 & board << 24) & WON_COLUMN > 0 {
             return true;
         }
-        const WON_LBRT: u64 = 0x0000_00F8_F8F8_F8F8;
+
+        // check diagonal wins by ANDing each slot with the NEXT three slots in the
+        // Left-Bottom to Right-Top diagonal line. Do not check the last rows because the rows above
+        // them are not set, do not check the first the slots in each row, because they are polluted,
+        // by the last slot in this row and the two rows above
+        const WON_LBRT: u64 = 0x00_00_00_F8_F8_F8_F8_F8;
         if (board & board >> 07 & board >> 14 & board >> 21) & WON_LBRT > 0 {
             return true;
         }
-        const WON_LTRB: u64 = 0xF8F8_F8F8_F800_0000;
+
+
+        const WON_LTRB: u64 = 0xF8_F8_F8_F8_F8_00_00_00;
         if (board & board << 9 & board << 18 & board << 27) & WON_LTRB > 0 {
             return true;
         }
@@ -90,7 +103,6 @@ impl MonteCarloGame for LineFour8x8 {
         Self {
             set_by_p1: 0,
             set_by_p2: 0,
-            player: TwoPlayer::P1
         }
     }
 
@@ -105,41 +117,56 @@ impl MonteCarloGame for LineFour8x8 {
     }
 
     fn make_move(&self, m: &Self::MOVE) -> Result<(Self, Option<Winner>), ()> {
-        const COLUMN_MASK: u64 = 0x01010101_01010101;
+        //1 in the first slot of each row, effectively 1 in  all slots of the first column
+        const COLUMN_MASK: u64 = 0x01_01_01_01_01_01_01_01;
         let index = *m as u8 as u32;
+
+        // shift the 1s in the first column to the column into which the piece should be droppped
         let column_mask = COLUMN_MASK << index;
         let all_set = self.set_by_p1 | self.set_by_p2;
-        let set_index = (column_mask^(all_set & column_mask)).trailing_zeros();
-        if set_index >= 64 {
+
+        // all already set slots in the column in which the new piece should be dropped
+        let set_in_column = all_set & column_mask;
+        let not_set_in_column = column_mask^set_in_column;
+
+        // bit index of the new piece
+        let set_index = not_set_in_column.trailing_zeros();
+
+        if not_set_in_column == 0 {
             return Err(())
         }
         let pnum = match self.player() {
             TwoPlayer::P1 => 1,
             TwoPlayer::P2 => 0,
         };
-        let new_p1 = self.set_by_p1 | pnum << set_index;
-        let new_p2 = self.set_by_p2 | (pnum ^ 1) << set_index;
+
+        // set the piece in p1 if p1 is at turn an vise-versa
+        let new_p1 = self.set_by_p1 | (pnum << set_index);
+        let new_p2 = self.set_by_p2 | ((pnum ^ 1) << set_index);
         let check_board = match self.player() {
             TwoPlayer::P1 => new_p1,
             TwoPlayer::P2 => new_p2,
         };
-        let (new_player, winner) = if Self::won(check_board) {
-            (self.player(), Some(Winner::WIN))
+        let winner = if Self::won(check_board) {
+            Some(Winner::WIN)
         } else if new_p2 | new_p1 == u64::MAX {
-            (self.player(), Some(Winner::TIE))
+            Some(Winner::TIE)
         } else {
-            (self.player().next(), None)
+            None
         };
         let new_state = Self {
             set_by_p1: new_p1,
             set_by_p2: new_p2,
-            player: new_player
         };
         Ok((new_state, winner))
     }
 
     fn player(&self) -> TwoPlayer {
-        self.player
+        if self.set_by_p1.count_ones() - self.set_by_p2.count_ones() == 0 {
+            TwoPlayer::P1
+        } else {
+            TwoPlayer::P2
+        }
     }
 }
 

@@ -259,10 +259,7 @@ fn select_move<T: MonteCarloGame>(state: &T, times: usize) -> T::MOVE {
         context.alloc_node(node)
     };
     let mut buf = Vec::new();
-    for i in 0..times {
-        if i == 7 {
-            let x = 1;
-        }
+    for _ in 0..times {
         playoff(root_node.clone(), &mut context, 2, &mut buf);
     }
     dbg!(context.node_store.get(&root_node).unwrap().visited_amount);
