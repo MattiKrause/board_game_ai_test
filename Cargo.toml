@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 bumpalo = { version = "3.11.0", features = ["collections"]}
 arrayvec = "0.7.2"
+rustc-hash = "1.1.0"
 
 [profile.release]
 debug = true

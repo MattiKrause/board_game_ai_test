@@ -66,6 +66,13 @@ impl <T> Arena<T> {
             None
         }
     }
+
+    pub fn purge(&mut self) {
+        for chunk in &mut self.content {
+            chunk.clear();
+        }
+        self.last_free = 0;
+    }
 }
 
 impl <T> Chunk<T> {
@@ -79,10 +86,8 @@ impl <T> Chunk<T> {
         };
         Chunk { used: 0, content }
     }
-}
 
-impl <T> Drop for Chunk<T> {
-    fn drop(&mut self) {
+    fn clear(&mut self) {
         for (i, slot) in self.content.iter_mut().enumerate() {
             if (self.used & (1 << i as u64)) > 0 {
                 unsafe { slot.assume_init_drop() }
@@ -92,14 +97,20 @@ impl <T> Drop for Chunk<T> {
     }
 }
 
+impl <T> Drop for Chunk<T> {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
 impl <T> ArenaHandle<T> {
     pub fn new(handle: usize) -> Self {
         debug_assert!(handle != usize::MAX);
         Self(handle, PhantomData::default())
     }
 
-    pub fn invalid() -> Self {
-        Self(usize::MAX, PhantomData::default())
+    pub const fn invalid() -> Self {
+        Self(usize::MAX, PhantomData)
     }
 }
 
