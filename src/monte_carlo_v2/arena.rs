@@ -7,15 +7,15 @@ pub struct ArenaHandle<T>(usize, PhantomData<T>);
 
 pub struct Arena<T> {
     content: Vec<Chunk<T>>,
-    last_free: usize
+    last_free: usize,
 }
 
 struct Chunk<T> {
     used: u64,
-    content: Box<[MaybeUninit<T>; 64]>
+    content: Box<[MaybeUninit<T>; 64]>,
 }
 
-impl <T> Arena<T> {
+impl<T> Arena<T> {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -32,7 +32,7 @@ impl <T> Arena<T> {
                 chunk.used |= 1 << slot;
                 slot_ref.write(item);
                 self.last_free += i;
-                return ArenaHandle::new(self.last_free * 64 | slot)
+                return ArenaHandle::new(self.last_free * 64 | slot);
             }
         }
         let mut new_chunk = Chunk::new();
@@ -56,7 +56,7 @@ impl <T> Arena<T> {
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, handle: &ArenaHandle<T>) ->  Option<&mut T> {
+    pub fn get_mut(&mut self, handle: &ArenaHandle<T>) -> Option<&mut T> {
         let chunk_idx = handle.0 / 64;
         let slot_idx = handle.0 % 64;
         let chunk = self.content.get_mut(chunk_idx)?;
@@ -69,27 +69,14 @@ impl <T> Arena<T> {
 
     pub fn purge(&mut self) {
         for chunk in &mut self.content {
-            chunk.clear(|_|());
-        }
-        self.last_free = 0;
-    }
-
-    pub fn purge_with<F: FnMut(T)>(&mut self, mut with: F) {
-        for chunk in  &mut self.content {
-            for (i, slot) in chunk.content.iter_mut().enumerate() {
-                if (chunk.used & (1 << i as u64)) > 0 {
-                    with(unsafe { slot.assume_init_read() });
-                }
-            }
-            chunk.used = 0;
+            chunk.clear(|_| ());
         }
         self.last_free = 0;
     }
 }
 
-impl <T> Chunk<T> {
+impl<T> Chunk<T> {
     fn new() -> Self {
-        let content = Box::new(unsafe { MaybeUninit::<[MaybeUninit<T>; 64]>::uninit().assume_init() });
         let content = unsafe {
             let layout = Layout::new::<[MaybeUninit<T>; 64]>();
             let allocated = std::alloc::alloc(layout);
@@ -109,13 +96,13 @@ impl <T> Chunk<T> {
     }
 }
 
-impl <T> Drop for Chunk<T> {
+impl<T> Drop for Chunk<T> {
     fn drop(&mut self) {
-        self.clear(|_|());
+        self.clear(|_| ());
     }
 }
 
-impl <T> ArenaHandle<T> {
+impl<T> ArenaHandle<T> {
     pub fn new(handle: usize) -> Self {
         debug_assert!(handle != usize::MAX);
         Self(handle, PhantomData::default())
@@ -126,22 +113,58 @@ impl <T> ArenaHandle<T> {
     }
 }
 
-impl <T> PartialEq<ArenaHandle<T>> for ArenaHandle<T> {
+impl<T> PartialEq<ArenaHandle<T>> for ArenaHandle<T> {
     fn eq(&self, other: &ArenaHandle<T>) -> bool {
         self.0.eq(&other.0)
     }
-
-
 }
-impl <T> Eq for ArenaHandle<T> {}
-impl <T> Copy for ArenaHandle<T> {}
-impl <T> Clone for ArenaHandle<T> {
+
+impl<T> Eq for ArenaHandle<T> {}
+
+impl<T> Copy for ArenaHandle<T> {}
+
+impl<T> Clone for ArenaHandle<T> {
     fn clone(&self) -> Self {
         Self(self.0, self.1)
     }
 }
-impl <T> std::hash::Hash for ArenaHandle<T> {
+
+impl<T> std::hash::Hash for ArenaHandle<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Arena;
+
+    #[test]
+    fn test() {
+        let mut arena: Arena<u64> = Arena::new();
+        let numbers: Vec<u64> = std::iter::repeat(1)
+            .take(1000)
+            .scan(0, |a, b| {
+                *a += b;
+                Some(*a)
+            })
+            .collect::<Vec<_>>();
+        let handle = numbers.iter().copied()
+            .map(|n| arena.insert(n))
+            .collect::<Vec<_>>();
+        let gathered = handle.iter().clone()
+            .filter_map(|handle| arena.get(handle))
+            .copied()
+            .collect::<Vec<_>>();
+        assert_eq!(numbers, gathered);
+        let gathered_mut = handle.iter().clone()
+            .filter_map(|handle| arena.get_mut(handle).copied())
+            .collect::<Vec<_>>();
+        assert_eq!(numbers, gathered_mut);
+        arena.purge();
+        assert_eq!(handle.iter().filter_map(|handle| arena.get(handle)).next(), None);
+
+
+
     }
 }
