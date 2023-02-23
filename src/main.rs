@@ -1,3 +1,5 @@
+extern crate core;
+
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use crate::ai_infra::*;

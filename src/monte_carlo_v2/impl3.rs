@@ -8,11 +8,13 @@ use rustc_hash::{FxHasher, FxHashMap};
 use crate::ai_infra::GameStrategy;
 use crate::monte_carlo_game::{MonteCarloGame, Winner};
 use crate::monte_carlo_v2::arena::{Arena, ArenaHandle};
+use crate::monte_carlo_v2::moves_buffer::{SliceArena, SliceHandle};
 
 //#[derive(Clone, Eq, PartialEq, Hash)]
 //struct MCNodeId<T: MonteCarloGame>(ArenaHandle<T>);
 
 type MCNodeId<T> = ArenaHandle<MCNode<T>>;
+type Successor<T: MonteCarloGame> = (MCNodeId<T>, T::MOVE);
 
 struct NodeSetId(u64);
 
@@ -25,7 +27,7 @@ enum CompactPred<T: MonteCarloGame> {
 
 struct MCNode<T: MonteCarloGame> {
     predecessors: CompactPred<T>,
-    moves: Box<[(MCNodeId<T>, T::MOVE)]>,
+    moves: SliceHandle<Successor<T>>,
     game_state: Rc<T>,
     visited_amount: u64,
     score_balance: f64,
@@ -35,7 +37,8 @@ struct MCNode<T: MonteCarloGame> {
 pub struct MCContext<T: MonteCarloGame> {
     mappings: FxHashMap<Rc<T>, MCNodeId<T>>,
     node_store: Arena<MCNode<T>>,
-    unused_rcs: Vec<Rc<T>>
+    unused_rcs: Vec<Rc<T>>,
+    move_store: SliceArena<Successor<T>>
 }
 
 /*struct NodeSetStore {
@@ -127,13 +130,15 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId<T>, context: &mut MCContext
     loop {
         // select next move;
 
-        let next_move_i = if let Some(m) = select_next::<T>(node, &node.moves, current_player_num == 0, context, 2.0) { m } else { break; };
-        let next_move = &node.moves[next_move_i];
+        let moves_ref = context.move_store.get(&node.moves).unwrap();
+
+        let next_move_i = if let Some(m) = select_next::<T>(node, moves_ref, current_player_num == 0, context, 2.0) { m } else { break; };
+        let next_move = &moves_ref[next_move_i];
 
         if next_move_i == 7 {
             let x = 1;
         }
-//0x55d8ae26c6c0
+
         (current_id, node) = if context.node_store.get(&next_move.0).is_some() {
             //Initialised
             let next = context.node_store.get(&next_move.0).unwrap();
@@ -148,7 +153,10 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId<T>, context: &mut MCContext
             }
 
             if let Some(next_id) = id {
-                context.node_store.get_mut(&current_id).and_then(|node| node.moves.get_mut(next_move_i)).unwrap().0 = next_id.clone();
+                context.node_store.get_mut(&current_id)
+                    .and_then(|node| context.move_store.get_mut(&node.moves))
+                    .and_then(|moves| moves.get_mut(next_move_i))
+                    .unwrap().0 = next_id.clone();
 
                 let next_node = context.node_store.get_mut(&next_id).expect("orphan state-map entry");
                 next_node.predecessors.push(current_id.clone());
@@ -163,7 +171,10 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId<T>, context: &mut MCContext
                     }
                 };
                 let next_id = new_node_entry(current_id.clone(), game_state, winner, context);
-                context.node_store.get_mut(&current_id).and_then(|node| node.moves.get_mut(next_move_i)).unwrap().0 = next_id.clone();
+                context.node_store.get_mut(&current_id)
+                    .and_then(|node| context.move_store.get_mut(&node.moves))
+                    .and_then(|moves| moves.get_mut(next_move_i))
+                    .unwrap().0 = next_id.clone();
                 let next_node = context.node_store.get(&next_id).unwrap();
                 (next_id, next_node)
             }
@@ -180,12 +191,11 @@ fn playoff<T: MonteCarloGame + Clone>(root: MCNodeId<T>, context: &mut MCContext
 fn new_node_entry<T: MonteCarloGame>(parent_id: ArenaHandle<MCNode<T>>, game_state: Rc<T>, winner: Option<Winner>, context: &mut MCContext<T>) -> ArenaHandle<MCNode<T>> {
     let (is_leaf, initial_score) = compute_initial_score(winner);
     let moves = if !is_leaf {
-        game_state.moves().into_iter()
-            .map(|mov| (MCNodeId::invalid(), mov))
-            .collect::<Vec<_>>()
-            .into_boxed_slice()
+        let moves = game_state.moves().into_iter()
+            .map(|mov| (MCNodeId::invalid(), mov));
+        context.move_store.insert(moves)
     } else {
-        Box::new([])
+        SliceHandle::empty()
     };
     let new_node = MCNode {
         predecessors: CompactPred::LessThanThree([parent_id,  MCNodeId::invalid()]),
@@ -232,9 +242,13 @@ fn compute_initial_score(win_state: Option<Winner>) -> (bool, f64) {
 #[inline(never)]
 fn backtrack_from_leaf<T: MonteCarloGame>(leaf: MCNodeId<T>, context: &mut MCContext<T>, buf: &mut Vec<(MCNodeId<T>, f64, bool)>) {
     fn compute_completely_computed<T: MonteCarloGame>(node: &MCNode<T>, context: &MCContext<T>) -> bool {
-        node.moves.iter()
-            .map(|(id, _)| context.node_store.get(id))
-            .all(|node| matches!(node, Some(node) if node.completely_computed))
+        if let Some(moves) = context.move_store.get(&node.moves) {
+            moves.iter()
+                .map(|(id, _)| context.node_store.get(id))
+                .all(|node| matches!(node, Some(node) if node.completely_computed))
+        } else {
+            true
+        }
     }
     buf.clear();
     {
@@ -273,7 +287,7 @@ fn backtrack_from_leaf<T: MonteCarloGame>(leaf: MCNodeId<T>, context: &mut MCCon
 
 fn select_move<T: MonteCarloGame>(state: &T, times: usize, context: &mut MCContext<T>) -> T::MOVE {
     context.node_store.purge();
-
+    context.move_store.clear();
     context.unused_rcs.reserve(context.mappings.len());
     context.unused_rcs.extend(context.mappings.drain().map(|(state, _)| state));
 
@@ -281,9 +295,8 @@ fn select_move<T: MonteCarloGame>(state: &T, times: usize, context: &mut MCConte
     let root_node = {
         let game_state = Rc::new(state.clone());
         let moves = game_state.moves().into_iter()
-            .map(|mov| (MCNodeId::invalid(), mov))
-            .collect::<Vec<_>>()
-            .into_boxed_slice();
+            .map(|mov| (MCNodeId::invalid(), mov));
+        let moves = context.move_store.insert(moves);
         let node = MCNode {
             predecessors: CompactPred::LessThanThree([MCNodeId::invalid(); 2]),
             moves,
@@ -299,7 +312,9 @@ fn select_move<T: MonteCarloGame>(state: &T, times: usize, context: &mut MCConte
         playoff(root_node.clone(), context, 2, &mut buf);
     }
     dbg!(context.node_store.get(&root_node).unwrap().visited_amount);
-    context.node_store.get(&root_node).unwrap().moves.iter()
+    let root_node = context.node_store.get(&root_node).unwrap();
+    let root_moves = context.move_store.get(&root_node.moves).unwrap();
+    root_moves.iter()
         .filter_map(|(id, mov)| context.node_store.get(id).zip(Some(mov)))
         .map(|(node, mov)| (node.score_balance / (node.visited_amount as f64), mov))
         .max_by(|(score1, _), (score2, _)| score1.total_cmp(score2))
@@ -360,6 +375,7 @@ impl <G: MonteCarloGame> GameStrategy<G> for MonteCarloV2I3 {
             mappings: HashMap::with_capacity_and_hasher(self.playoffs / 10, Default::default()),
             node_store: Arena::new(),
             unused_rcs: vec![],
+            move_store: SliceArena::new(),
         });
         (select_move(game, self.playoffs, &mut context), context)
     }

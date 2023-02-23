@@ -69,7 +69,19 @@ impl <T> Arena<T> {
 
     pub fn purge(&mut self) {
         for chunk in &mut self.content {
-            chunk.clear();
+            chunk.clear(|_|());
+        }
+        self.last_free = 0;
+    }
+
+    pub fn purge_with<F: FnMut(T)>(&mut self, mut with: F) {
+        for chunk in  &mut self.content {
+            for (i, slot) in chunk.content.iter_mut().enumerate() {
+                if (chunk.used & (1 << i as u64)) > 0 {
+                    with(unsafe { slot.assume_init_read() });
+                }
+            }
+            chunk.used = 0;
         }
         self.last_free = 0;
     }
@@ -87,10 +99,10 @@ impl <T> Chunk<T> {
         Chunk { used: 0, content }
     }
 
-    fn clear(&mut self) {
+    fn clear<F: FnMut(T)>(&mut self, mut with: F) {
         for (i, slot) in self.content.iter_mut().enumerate() {
             if (self.used & (1 << i as u64)) > 0 {
-                unsafe { slot.assume_init_drop() }
+                with(unsafe { slot.assume_init_read() });
             }
         }
         self.used = 0;
@@ -99,7 +111,7 @@ impl <T> Chunk<T> {
 
 impl <T> Drop for Chunk<T> {
     fn drop(&mut self) {
-        self.clear();
+        self.clear(|_|());
     }
 }
 
