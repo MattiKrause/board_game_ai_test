@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::rc::Rc;
+use std::time::Instant;
 use rustc_hash::{FxHashMap};
 use crate::ai_infra::GameStrategy;
 use crate::monte_carlo_game::{MonteCarloGame, Winner};
@@ -52,7 +53,16 @@ impl <G: MonteCarloGame> GameStrategy<G> for MonteCarloV2I3 {
             unused_rcs: vec![],
             move_store: SliceArena::new(),
         });
-        (select_move(game, self.playoffs, &mut context), context)
+        let start = Instant::now();
+        let result = (select_move(game, self.playoffs, &mut context), context);
+        //1.34836958s
+        //1.347581748s
+        //1.376205498s
+        //1.329065541s
+        //1.365577052s
+        //1.341316484s
+        println!("time taken: {}s", start.elapsed().as_secs_f64());
+        result
     }
 }
 

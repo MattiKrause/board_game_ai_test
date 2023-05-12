@@ -45,6 +45,7 @@ impl<T> Arena<T> {
 
     #[must_use]
     pub fn get(&self, handle: &ArenaHandle<T>) -> Option<&T> {
+        debug_assert!(self.content.len() > 0);
         let chunk_idx = handle.0 / 64;
         let slot_idx = handle.0 % 64;
         let chunk = self.content.get(chunk_idx)?;
@@ -163,8 +164,5 @@ mod tests {
         assert_eq!(numbers, gathered_mut);
         arena.purge();
         assert_eq!(handle.iter().filter_map(|handle| arena.get(handle)).next(), None);
-
-
-
     }
 }
