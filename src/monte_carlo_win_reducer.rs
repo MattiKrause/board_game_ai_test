@@ -1,11 +1,13 @@
+use std::net::UdpSocket;
+
 pub trait WinReducerFactory {
     type WR: WinReducer;
     fn create(&self, score: f64) -> Self::WR;
 }
 
 pub trait WinReducer: Sized {
-    fn deteriorate(&mut self) { self.get_and_deteriorate(); }
-    fn get_and_deteriorate(&mut self) -> f64;
+    fn deteriorate(&mut self, child_count: usize) { self.get_and_deteriorate(child_count); }
+    fn get_and_deteriorate(&mut self, child_count: usize) -> f64;
 }
 
 #[derive(Copy, Clone)]
@@ -21,7 +23,7 @@ impl WinReducerFactory for WinIdentFactory {
 }
 
 impl WinReducer for WinIdent {
-    fn get_and_deteriorate(&mut self) -> f64 {
+    fn get_and_deteriorate(&mut self, _child_count: usize) -> f64 {
         self.0
     }
 }
@@ -45,9 +47,28 @@ impl WinReducerFactory for WinFactorReduceFactory {
     }
 }
 impl WinReducer for WinFactorReduce {
-    fn get_and_deteriorate(&mut self) -> f64 {
+    fn get_and_deteriorate(&mut self, _child_count: usize) -> f64 {
         let score = self.score;
         self.score *= self.by;
         score
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ScoreAveragerFactory;
+pub struct ScoreAveragerReduce(f64);
+
+impl WinReducerFactory for ScoreAveragerFactory {
+    type WR = ScoreAveragerReduce;
+
+    fn create(&self, score: f64) -> Self::WR {
+        ScoreAveragerReduce(score)
+    }
+}
+
+impl WinReducer for ScoreAveragerReduce {
+    fn get_and_deteriorate(&mut self, child_count: usize) -> f64 {
+        self.0 /= child_count as f64;
+        self.0
     }
 }

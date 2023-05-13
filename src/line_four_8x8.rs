@@ -7,6 +7,7 @@ pub struct LineFour8x8 {
     //Layout bytes = rows, first byte = first row, etc.
     set_by_p1: u64,
     set_by_p2: u64,
+    player: TwoPlayer
 }
 
 macro_rules! column_index {
@@ -103,6 +104,7 @@ impl MonteCarloGame for LineFour8x8 {
         Self {
             set_by_p1: 0,
             set_by_p2: 0,
+            player: TwoPlayer::P1
         }
     }
 
@@ -147,26 +149,23 @@ impl MonteCarloGame for LineFour8x8 {
             TwoPlayer::P1 => new_p1,
             TwoPlayer::P2 => new_p2,
         };
-        let winner = if Self::won(check_board) {
-            Some(Winner::WIN)
-        } else if new_p2 | new_p1 == u64::MAX {
-            Some(Winner::TIE)
-        } else {
-            None
-        };
+        let (new_player, winner) = if Self::won(check_board) {
+                (self.player(), Some(Winner::WIN))
+            } else if new_p2 | new_p1 == u64::MAX {
+                (self.player(), Some(Winner::TIE))
+            } else {
+                (self.player().next(), None)
+            };
         let new_state = Self {
             set_by_p1: new_p1,
             set_by_p2: new_p2,
+            player: new_player,
         };
         Ok((new_state, winner))
     }
 
     fn player(&self) -> TwoPlayer {
-        if self.set_by_p1.count_ones() - self.set_by_p2.count_ones() == 0 {
-            TwoPlayer::P1
-        } else {
-            TwoPlayer::P2
-        }
+        self.player
     }
 }
 

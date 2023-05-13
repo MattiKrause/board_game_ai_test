@@ -9,6 +9,8 @@ edition = "2021"
 bumpalo = { version = "3.11.0", features = ["collections"]}
 arrayvec = "0.7.2"
 rustc-hash = "1.1.0"
+typed-arena = "2.0.*"
+rand = { version = "0.8.5", features = ["small_rng"] }
 
 [profile.release]
 debug = true

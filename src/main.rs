@@ -1,6 +1,7 @@
 extern crate core;
 
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroU64;
 use std::rc::Rc;
 use crate::ai_infra::*;
 use crate::line_four_8x8::{LineFour8x8, LineFour8x8Index};
@@ -8,8 +9,9 @@ use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
 use old_monte_carlo::monte_carlo_main4::MonteCarloStrategyV4;
-use crate::monte_carlo_v2::{MonteCarloV2I1, MonteCarloV2I2, MonteCarloV2I3};
-use crate::monte_carlo_win_reducer::{WinFactorReduceFactory, WinIdentFactory};
+use crate::monte_carlo_v2::{MonteCarloConfigV2I4, MonteCarloV2I1, MonteCarloV2I2, MonteCarloV2I3, MonteCarloV2I4};
+use crate::monte_carlo_win_reducer::{ScoreAveragerFactory, WinFactorReduceFactory, WinIdentFactory};
+use crate::old_monte_carlo::monte_carlo_main5::MonteCarloStrategyV5;
 
 mod line_four_7x6;
 mod monte_carlo_game;
@@ -22,18 +24,21 @@ mod monte_carlo_v2;
 fn main() {
 
     println!("Hello, world!");
-    let half_wr = WinIdentFactory;
-    //let win_reward1 = WinReward::new(0.5, 1.0, -1.1);
-    let win_reward2 = WinReward::new(0.0, 1.0, -1.0);
-    let config: [Box<dyn GamePlayer<_>>; 2] = [
-        //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward2))),
-        //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::times(100000),0.5, half_wr, win_reward2))),
-        Box::new(MonteCarloV2I3::strategy_of(100000)),
-        Box::new(RecordedMoves(vec![LineFour8x8Index::I4, LineFour8x8Index::I4, LineFour8x8Index::I4])),
-        //Box::new(PlayerInput)
-        //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
-    ];
-    run_game::<LineFour8x8>(config);
+    run_games::<LineFour8x8,  _>(10, || {
+        let half_wr = ScoreAveragerFactory;
+        let win_reward1 = WinReward::new(0.5, 1.0, -1.1);
+        let win_reward2 = WinReward::new(0.0, 1.0, -10.0);
+
+        let config: [Box<dyn GamePlayer<_>>; 2] = [
+            Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
+            //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::times(100000),0.5, half_wr, win_reward2))),
+            //Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::Duration { millis: NonZeroU64::new(2000).unwrap() }, std::f64::consts::SQRT_2, half_wr, win_reward2, None))),
+            Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::duration(1000), 0.5, half_wr, win_reward1, None))),
+            //Box::new(PlayerInput)
+            //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
+        ];
+        config
+    });
 }
 
 fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>; 2]>(times: u32, mut config: F) {
@@ -41,6 +46,7 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
     let mut p2_win = 032;
     let mut tie = 0u32;
     for i in 0..times {
+        println!("game: {i}");
         let mut config = config();
         let swap = i % 2 != 0;
         if swap {

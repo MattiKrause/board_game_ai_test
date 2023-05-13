@@ -209,11 +209,11 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: WinReducerFactory>(
     let mut is_leaf = true;
     for (wins, leaf_count, child_count) in path.into_iter().rev() {
         *wins += if inc_first {
-            second_score.deteriorate();
-            first_score.get_and_deteriorate()
+            second_score.deteriorate(child_count);
+            first_score.get_and_deteriorate(child_count)
         } else {
-            first_score.deteriorate();
-            second_score.get_and_deteriorate()
+            first_score.deteriorate(child_count);
+            second_score.get_and_deteriorate(child_count)
         };
         inc_first = !inc_first;
         *leaf_count += is_leaf as u8 as u16;
