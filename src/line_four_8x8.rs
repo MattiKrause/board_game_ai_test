@@ -1,6 +1,7 @@
 use std::fmt::{Debug, Formatter, Write};
 use std::marker::PhantomData;
 use crate::{MonteCarloGame, TwoPlayer, Winner};
+use crate::multi_score_reducer::CheckWinMonteCarloGame;
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash)]
 pub struct LineFour8x8 {
@@ -166,6 +167,19 @@ impl MonteCarloGame for LineFour8x8 {
 
     fn player(&self) -> TwoPlayer {
         self.player
+    }
+}
+
+impl CheckWinMonteCarloGame for LineFour8x8 {
+    fn win_state(&self) -> Option<Winner> {
+        let won = Self::won(self.set_by_p1) | Self::won(self.set_by_p2);
+        if won {
+            Some(Winner::WIN)
+        } else if self.set_by_p2 | self.set_by_p1 == u64::MAX {
+            Some(Winner::TIE)
+        } else {
+            None
+        }
     }
 }
 

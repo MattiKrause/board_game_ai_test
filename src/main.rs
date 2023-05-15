@@ -11,7 +11,9 @@ use old_monte_carlo::monte_carlo_main3::*;
 use old_monte_carlo::monte_carlo_main4::MonteCarloStrategyV4;
 use crate::monte_carlo_v2::{MonteCarloConfigV2I4, MonteCarloV2I1, MonteCarloV2I2, MonteCarloV2I3, MonteCarloV2I4};
 use crate::monte_carlo_win_reducer::{ScoreAveragerFactory, WinFactorReduceFactory, WinIdentFactory};
+use crate::multi_score_reducer::{TwoScoreReducerFactory, WinRewardInit};
 use crate::old_monte_carlo::monte_carlo_main5::MonteCarloStrategyV5;
+use crate::old_monte_carlo::monte_carlo_main6::MonteCarloStrategyV6;
 
 mod line_four_7x6;
 mod monte_carlo_game;
@@ -20,6 +22,8 @@ mod monte_carlo_win_reducer;
 mod line_four_8x8;
 mod old_monte_carlo;
 mod monte_carlo_v2;
+mod multi_score_reducer;
+mod tic_tac_toe;
 
 fn main() {
 
@@ -28,12 +32,18 @@ fn main() {
         let half_wr = ScoreAveragerFactory;
         let win_reward1 = WinReward::new(0.5, 1.0, -1.1);
         let win_reward2 = WinReward::new(0.0, 1.0, -10.0);
+        let score_reducer = TwoScoreReducerFactory::new(
+            WinRewardInit::new(1.0, 0.5, half_wr),
+            WinRewardInit::new(-1.5, 0.5, half_wr)
+        );
+
 
         let config: [Box<dyn GamePlayer<_>>; 2] = [
-            Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
+            //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
             //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::times(100000),0.5, half_wr, win_reward2))),
             //Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::Duration { millis: NonZeroU64::new(2000).unwrap() }, std::f64::consts::SQRT_2, half_wr, win_reward2, None))),
             Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::duration(1000), 0.5, half_wr, win_reward1, None))),
+            Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(1000), 0.5, score_reducer, None)))
             //Box::new(PlayerInput)
             //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
         ];
@@ -45,10 +55,15 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
     let mut p1_win = 0u32;
     let mut p2_win = 032;
     let mut tie = 0u32;
+
+    //is swapped immediately
+    let mut p1_win_ref = &mut p2_win;
+    let mut p2_win_ref = &mut p1_win;
     for i in 0..times {
         println!("game: {i}");
         let mut config = config();
         let swap = i % 2 != 0;
+        (p1_win_ref, p2_win_ref) = (p2_win_ref, p1_win_ref);
         if swap {
             config.swap(0, 1);
         }
@@ -58,13 +73,15 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
                 let mut player = game.player();
                 if swap { player = player.next(); }
                 match player {
-                    TwoPlayer::P1 => p1_win += 1,
-                    TwoPlayer::P2 => p2_win += 1,
+                    TwoPlayer::P1 => *p1_win_ref += 1,
+                    TwoPlayer::P2 => *p2_win_ref += 1,
                 }
             }
             Winner::TIE => tie += 1,
         }
     }
+    assert!(p1_win <= times);
+    assert!(p2_win <= times);
     let times = f64::from(times);
     println!("p1_rate: {}, p2_rate: {}, tie_rate: {}", f64::from(p1_win) / times, f64::from(p2_win) / times, f64::from(tie) / times);
 }
