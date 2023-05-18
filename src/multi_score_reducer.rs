@@ -15,6 +15,7 @@ pub trait ScoreReducer: Sized {
     fn next_score(&mut self, child_count: usize) -> f64;
 }
 
+#[derive(Copy, Clone)]
 pub struct TwoScoreReducerFactory<F1, F2> {
     fac_1: F1, fac_2: F2
 }
@@ -26,6 +27,7 @@ pub trait WinReducerFactoryWinInit {
     fn create(&self, end_result: Winner) -> Self::WR;
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct WinRewardInit<F> {
     on_win: f64, on_tie: f64, f: F,
 }

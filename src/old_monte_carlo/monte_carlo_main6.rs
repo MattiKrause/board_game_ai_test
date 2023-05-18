@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
+use std::thread::current;
 use std::time::{Duration, Instant};
 use bumpalo::Bump;
 use rand::{Rng, RngCore, SeedableRng, thread_rng};
@@ -24,7 +25,12 @@ pub struct MonteCarloCarry {
 
 
 #[derive(Debug)]
-struct MonteCarloChild<'b, G: MonteCarloGame>(G::MOVE, Option<MonteCarloState<'b, G>>);
+enum MonteState<'b, G: MonteCarloGame> {
+    Computed(MonteCarloState<'b, G>),
+    Uncomputed(G::MOVE, &'b G),
+}
+#[derive(Debug)]
+struct MonteCarloChild<'b, G: MonteCarloGame>(MonteState<'b, G>);
 
 #[derive(Debug)]
 struct MonteCarloState<'b, G: MonteCarloGame> {
@@ -32,19 +38,16 @@ struct MonteCarloState<'b, G: MonteCarloGame> {
     visited: f64,
     wins: f64,
     leaf_count: u16,
-    game: G,
     winner: Option<Winner>,
 }
 
 
 impl<'b, G: MonteCarloGame> MonteCarloState<'b, G> {
-    fn new(g: G, winner: Option<Winner>, bump: &'b Bump) -> Self {
+    fn new(g: &'b G, winner: Option<Winner>, bump: &'b Bump) -> Self {
         let children = if winner.is_none() {
             let moves = g.moves().into_iter();
             let mut children = bumpalo::collections::Vec::with_capacity_in(moves.size_hint().0, bump);
-            for m in moves {
-                children.push(MonteCarloChild(m, None))
-            }
+            children.extend(moves.map(|m| MonteCarloChild(MonteState::Uncomputed(m, g))));
             children
         } else {
             bumpalo::collections::Vec::new_in(bump)
@@ -55,7 +58,6 @@ impl<'b, G: MonteCarloGame> MonteCarloState<'b, G> {
             visited: 0.0,
             wins: 0.0,
             leaf_count: 0,
-            game: g,
             winner,
         }
     }
@@ -116,33 +118,39 @@ impl<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>> GameStrategy<G
     }
 }
 
-fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(g: &G, bump: &Bump, tmp_buf: &mut Bump, rng: &mut impl Rng, limit: MonteLimit, c: f64, wr_factory: &W) -> G::MOVE {
+fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(g: &G, bump: &Bump, tmp_buf: &mut Bump, rng: &mut impl Rng, limit: MonteLimit, c: f64, wr_factory: &W) -> G::MOVE where G::MOVE: Clone{
     let mut children = {
         let moves = g.moves().into_iter();
         let mut children = Vec::with_capacity(moves.size_hint().0);
         for m in moves.into_iter() {
             let (s, w) = g.make_move(&m).unwrap();
-            if let Some(Winner::WIN) = w {
+            if let Some(Winner::WIN | Winner::TIE) = w {
                 return m;
             }
+            let s = bump.alloc(s);
             let new_state = MonteCarloState::new(s, w, &bump);
-            children.push(MonteCarloChild(m, Some(new_state)))
+            children.push((m.clone(), MonteCarloChild(MonteState::Computed(new_state))))
         }
         children
     };
     monte_carlo_loop!(limit, operations, {
-        let next = select_next(rng, tmp_buf, children.iter_mut(), operations, c);
+        let next = select_next(rng, children.iter().map(|(_, s)| s), operations, c);
         let next = if let Some(next) = next {
             next
         } else {
             break;
         };
-        playoff(g, next, wr_factory, bump, tmp_buf, rng, c);
+        let next = &mut children[next].1;
+        playoff(next, wr_factory, bump, tmp_buf, rng, c);
     });
 
     return children
         .into_iter()
-        .filter_map(|c| (c.1.map(|s| (c.0, s))))
+        .filter_map(|(m, c)| if let MonteState::Computed(s) = c.0 {
+            Some((m, s))
+        } else {
+            None
+        })
         .map(|(m, s)| {
             (m, s.wins / s.visited)
         })
@@ -153,7 +161,6 @@ fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactor
 }
 
 fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
-    mut g: &'a G,
     next: &'a mut MonteCarloChild<'b, G>,
     wr_config: &W,
     bump: &'b Bump,
@@ -164,28 +171,34 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
     let mut path = Vec::with_capacity(30);
     let mut next = next;
     let winner;
+    let final_game_state;
     loop {
-        let current = match next.1 {
-            Some(ref mut child) => child,
-            None => {
-                let child = g.make_move(&next.0);
+        let mut win_state = None;
+        let current = match next.0 {
+            MonteState::Computed(ref mut child) => child,
+            MonteState::Uncomputed(m, g) => {
+                let child = g.make_move(&m);
                 let child = match child {
                     Ok(c) => c,
                     Err(_) => {
-                        println!("move: {:?}", next.0);
+                        println!("move: {:?}", m);
                         println!("field:\n{g:?}");
                         panic!("invalid move");
                     }
                 };
-                let next_state = MonteCarloState::new(child.0, child.1, bump);
-                next.1 = Some(next_state);
-                next.1.as_mut().unwrap()
+
+                let g = &*bump.alloc(child.0);
+                win_state = child.1.map(|w| (g, w));
+                let next_state = MonteCarloState::new(g, child.1, bump);
+                next.0 = MonteState::Computed(next_state);
+                let MonteState::Computed(ref mut n) = next.0 else { unreachable!() };
+                n
             }
         };
         current.visited += 1.0;
-        g = &current.game;
-        if let Some(w) = current.winner {
+        if let Some((g, w)) = win_state {
             winner = w;
+            final_game_state = g;
             current.leaf_count += 1;
             break;
         }
@@ -195,17 +208,26 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
         tmp_buf.reset();
         let new = select_next(
             rng,
-            tmp_buf,
-            current.children.iter_mut(),
+            current.children.iter(),
             current.visited,
             c,
-        ).unwrap();
+        );
+        let new = if let Some(new) = new {
+            new
+        } else {
+            if path.len() == 0 && current.children.len() == 0 {
+                //weird special case when there is only one playable move
+                return;
+            }
+            panic!("alarm: path_len {}, current_leaf_c: {}, current_c_c: {}", path.len(), current.leaf_count, current.children.len());
+        };
+        let new = &mut current.children[new];
 
         path.push((&mut current.wins, &mut current.leaf_count, child_count));
         next = new;
     }
 
-    let mut score_reducer = wr_config.create(g);
+    let mut score_reducer = wr_config.create(final_game_state);
     let mut is_leaf = true;
     for (wins, leaf_count, child_count) in path.into_iter().rev() {
         *wins += score_reducer.next_score(child_count);
@@ -216,64 +238,34 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
 
 fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     rng: &mut impl Rng,
-    tmp_buf: &Bump,
-    mut children: impl Iterator<Item=&'c mut MonteCarloChild<'b, G>>,
+    mut children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
     parent_visited: f64, c: f64
-) -> Option<&'d mut MonteCarloChild<'b, G>> {
-    let children_assume_size = {
-        let (lower, upper) = children.size_hint();
-        upper.unwrap_or(lower)
-    };
-    let mut existing = bumpalo::collections::Vec::with_capacity_in(children_assume_size, tmp_buf);
-    let mut not_existing = bumpalo::collections::Vec::with_capacity_in(children_assume_size, tmp_buf);
-
-    for child in children {
-        match child.1 {
-            None => not_existing.push(child),
-            Some(ref c) if c.visited == 0.0 => not_existing.push(child),
-            Some(ref c) if usize::from(c.leaf_count) < c.children.len() => existing.push(child),
-            _ => {}
+) -> Option<usize> {
+    let mut max_i = usize::MAX;
+    let mut any_uncomputed = false;
+    let mut max_score = f64::NEG_INFINITY;
+    for (i, child) in children.enumerate() {
+        match child.0 {
+            MonteState::Computed(MonteCarloState {visited: 0.0, ..}) | MonteState::Uncomputed(_, _) => {
+                let rng_score = rng.gen::<f64>();
+                if !any_uncomputed || rng_score > max_score {
+                    max_score = rng_score;
+                    max_i = i;
+                }
+                any_uncomputed = true;
+            }
+            MonteState::Computed(ref child) => {
+                let score = (child.wins / child.visited) + c * (parent_visited.ln() / child.visited).sqrt();
+                if !any_uncomputed && score > max_score && (child.leaf_count as usize) < child.children.len() {
+                    max_i = i;
+                    max_score = score;
+                }
+            }
         }
     }
-    if not_existing.len() > 0 {
-        let idx = rng.gen_range(0..not_existing.len());
-        return Some(not_existing.into_iter().skip(idx).next().expect("sould have result"))
-    }
 
-    let parent_factor = parent_visited.ln();
-
-    let mut scores = tmp_buf.alloc_slice_fill_iter(existing.iter().map(|child| {
-        let child = child.1.as_ref().unwrap();
-        let mut score = (child.wins / child.visited) + c * (parent_factor / child.visited).sqrt();
-        debug_assert!(!score.is_nan());
-        score
-    }));
-    let min_values = scores.iter().copied().fold(0.0, f64::min);
-
-    let mut highest_score = 0.0;
-    for score in scores.iter_mut() {
-        highest_score += *score - min_values + f64::EPSILON;
-        *score = highest_score;
-    }
-
-    debug_assert!(existing.len() == scores.len());
-
-    if existing.len() > 0 && scores.len() > 0 {
-        let _existing = existing.as_slice();
-        if highest_score <= 0.0 {
-            println!("min_val: {min_values}: {scores:?}, {highest_score}");
-        };
-        let rng = rng.gen_range(0.0..highest_score);
-        let idx = scores.iter().enumerate()
-            .find_map(|(i, s)| (rng <= *s).then_some(i));
-        let idx = if let Some(idx) = idx {
-            idx
-        } else {
-            let _ = 2 + 2;
-            panic!("invalid value");
-        };
-
-        Some(existing.into_iter().skip(idx).next().expect("should have result"))
+    if max_i < usize::MAX {
+        Some(max_i)
     } else {
         None
     }

@@ -14,6 +14,7 @@ use crate::monte_carlo_win_reducer::{ScoreAveragerFactory, WinFactorReduceFactor
 use crate::multi_score_reducer::{TwoScoreReducerFactory, WinRewardInit};
 use crate::old_monte_carlo::monte_carlo_main5::MonteCarloStrategyV5;
 use crate::old_monte_carlo::monte_carlo_main6::MonteCarloStrategyV6;
+use crate::tic_tac_toe::TicTacToe;
 
 mod line_four_7x6;
 mod monte_carlo_game;
@@ -28,13 +29,17 @@ mod tic_tac_toe;
 fn main() {
 
     println!("Hello, world!");
-    run_games::<LineFour8x8,  _>(10, || {
+    run_games::<LineFour8x8,  _>(15, || {
         let half_wr = ScoreAveragerFactory;
-        let win_reward1 = WinReward::new(0.5, 1.0, -1.1);
-        let win_reward2 = WinReward::new(0.0, 1.0, -10.0);
+        let long_view_eval = WinFactorReduceFactory { by: 0.5 };
         let score_reducer = TwoScoreReducerFactory::new(
-            WinRewardInit::new(1.0, 0.5, half_wr),
-            WinRewardInit::new(-1.5, 0.5, half_wr)
+            WinRewardInit::new(100.0, 50.0, half_wr),
+            WinRewardInit::new(-150.0, 50.0, half_wr),
+        );
+
+        let score_reducer2 = TwoScoreReducerFactory::new(
+            WinRewardInit::new(10.0, 5.0, long_view_eval),
+            WinRewardInit::new(-15.0, 5.0, long_view_eval)
         );
 
 
@@ -42,8 +47,9 @@ fn main() {
             //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
             //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::times(100000),0.5, half_wr, win_reward2))),
             //Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::Duration { millis: NonZeroU64::new(2000).unwrap() }, std::f64::consts::SQRT_2, half_wr, win_reward2, None))),
-            Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::duration(1000), 0.5, half_wr, win_reward1, None))),
-            Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(1000), 0.5, score_reducer, None)))
+            //Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(1000), 1.0, score_reducer.clone(), None))),
+            Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(100), 1.0, score_reducer, None))),
+            Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(100), 1.0, score_reducer2, None))),
             //Box::new(PlayerInput)
             //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
         ];
@@ -53,7 +59,7 @@ fn main() {
 
 fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>; 2]>(times: u32, mut config: F) {
     let mut p1_win = 0u32;
-    let mut p2_win = 032;
+    let mut p2_win = 0u32;
     let mut tie = 0u32;
 
     //is swapped immediately
@@ -67,11 +73,10 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
         if swap {
             config.swap(0, 1);
         }
-        let (winner, game) = run_game(config);
+        let (winner, game) = run_game(config, true);
         match winner {
             Winner::WIN => {
                 let mut player = game.player();
-                if swap { player = player.next(); }
                 match player {
                     TwoPlayer::P1 => *p1_win_ref += 1,
                     TwoPlayer::P2 => *p2_win_ref += 1,
@@ -86,9 +91,12 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
     println!("p1_rate: {}, p2_rate: {}, tie_rate: {}", f64::from(p1_win) / times, f64::from(p2_win) / times, f64::from(tie) / times);
 }
 
-fn run_game<G: MonteCarloGame + 'static>(mut config: [Box<dyn GamePlayer<G>>; 2]) -> (Winner, G) {
+fn run_game<G: MonteCarloGame + 'static>(mut config: [Box<dyn GamePlayer<G>>; 2], should_print: bool) -> (Winner, G) {
+    macro_rules! cprintln {
+        ($lit: literal $(, $e: expr)*) => {if should_print { println!($lit $(, $e)*) }};
+    }
     let mut game = G::new();
-    println!("{game:?}");
+    cprintln!("{game:?}");
     let mut last_move = None;
     loop {
         let config = match game.player() {
@@ -100,11 +108,11 @@ fn run_game<G: MonteCarloGame + 'static>(mut config: [Box<dyn GamePlayer<G>>; 2]
             .expect("could not make move");
         game = new_game;
         last_move = Some(m);
-        println!("{game:?}");
+        cprintln!("{game:?}");
         if let Some(winner) = winner {
             match winner {
-                Winner::WIN => println!("{:?} has won", game.player()),
-                Winner::TIE => println!("TIE!")
+                Winner::WIN => cprintln!("{:?} has won", game.player()),
+                Winner::TIE => cprintln!("TIE!")
             }
             break (winner, game);
         }
