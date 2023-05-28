@@ -9,12 +9,14 @@ use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
 use old_monte_carlo::monte_carlo_main4::MonteCarloStrategyV4;
+use crate::dumm_ai::DummAi;
 use crate::monte_carlo_v2::{MonteCarloConfigV2I4, MonteCarloV2I1, MonteCarloV2I2, MonteCarloV2I3, MonteCarloV2I4};
 use crate::monte_carlo_win_reducer::{ScoreAveragerFactory, WinFactorReduceFactory, WinIdentFactory};
 use crate::multi_score_reducer::{TwoScoreReducerExecutionLimiterFactory, TwoScoreReducerFactory, WinRewardInit};
 use crate::old_monte_carlo::monte_carlo_main5::MonteCarloStrategyV5;
 use crate::old_monte_carlo::monte_carlo_main6::MonteCarloStrategyV6;
 use crate::old_monte_carlo::monte_carlo_main7::MonteCarloStrategyV7;
+use crate::old_monte_carlo::monte_carlo_main8::MonteCarloStrategyV8;
 use crate::tic_tac_toe::TicTacToe;
 
 mod line_four_7x6;
@@ -26,37 +28,40 @@ mod old_monte_carlo;
 mod monte_carlo_v2;
 mod multi_score_reducer;
 mod tic_tac_toe;
+mod monte_carlo_game_v2;
+mod dumm_ai;
 
 fn main() {
 
     println!("Hello, world!");
     run_games::<LineFour8x8,  _>(15, || {
-        let half_wr = ScoreAveragerFactory;
         let long_view_eval = WinFactorReduceFactory { by: 0.5 };
-        let score_reducer = TwoScoreReducerFactory::new(
-            WinRewardInit::new(100.0, 50.0, half_wr),
-            WinRewardInit::new(-150.0, 50.0, half_wr),
+        let score_reducer1 = TwoScoreReducerFactory::new(
+            WinRewardInit::new
+                (-1.5, 5.0, long_view_eval),
+            WinRewardInit::new(1.0, 5.0, long_view_eval),
         );
 
-        let score_reducer2 = TwoScoreReducerFactory::new(
-            WinRewardInit::new(10.0, 5.0, long_view_eval),
-            WinRewardInit::new(-15.0, 5.0, long_view_eval)
+        let score_reducer2 =TwoScoreReducerFactory::new(
+            WinRewardInit::new(1.0, 5.0, long_view_eval),
+            WinRewardInit::new(-1.5, 5.0, long_view_eval),
         );
 
-        let trs = score_reducer2.limiter_from(0.0001);
-
+        let trs1 = score_reducer1.limiter_from(0.0001);
+        let trs2 = score_reducer2.limiter_from(0.0001);
 
         let config: [Box<dyn GamePlayer<_>>; 2] = [
             //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
             //Box::new(MonteCarloStrategyV3::strategy_of((MonteLimit::times(100000),0.5, half_wr, win_reward2))),
             //Box::new(MonteCarloStrategyV5::strategy_of((MonteLimit::Duration { millis: NonZeroU64::new(2000).unwrap() }, std::f64::consts::SQRT_2, half_wr, win_reward2, None))),
             //Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(1000), 1.0, score_reducer.clone(), None))),
-            Box::new(MonteCarloStrategyV1::strategy_of((MonteLimit::duration(100), 1.0))),
+            Box::new(DummAi::strategy_of(())),
+            Box::new(MonteCarloStrategyV8::strategy_of((MonteLimit::duration(100), 1.0, trs1, None))),
             //Box::new(MonteCarloStrategyV6::strategy_of((MonteLimit::duration(100), 1.0, score_reducer, None))),
-            Box::new(MonteCarloStrategyV7::strategy_of((MonteLimit::duration(100), 1.0, trs, None))),
             //Box::new(PlayerInput)
             //Box::new(RecordedMoves(vec![LineFour8x8Index::I3, LineFour8x8Index::I3, LineFour8x8Index::I5, LineFour8x8Index::I3]))
         ];
+
         config
     });
 }

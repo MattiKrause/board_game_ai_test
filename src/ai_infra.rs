@@ -1,12 +1,21 @@
 use std::io::stdin;
 use std::mem::replace;
+use crate::monte_carlo_game_v2::MonteCarloGameND;
 use crate::MonteCarloGame;
 
-pub trait GamePlayer<G: MonteCarloGame> {
+pub trait GameRepr {
+    type MOVE;
+}
+
+impl <G: MonteCarloGameND> GameRepr for G {
+    type MOVE = G::MOVE;
+}
+
+pub trait GamePlayer<G: GameRepr> {
     fn make_move(&mut self, game: &G, enemy_move: Option<G::MOVE>) -> G::MOVE;
 }
 
-pub trait GameStrategy<G: MonteCarloGame> {
+pub trait GameStrategy<G: GameRepr> {
     type Carry;
     type Config;
     fn new(config: Self::Config) -> Self;
@@ -16,12 +25,12 @@ pub trait GameStrategy<G: MonteCarloGame> {
     fn make_move(&self, game: &G, carry: Option<(G::MOVE, Self::Carry)>) -> (G::MOVE, Self::Carry);
 }
 
-pub struct GameStrategyPlayer<G: MonteCarloGame, GS: GameStrategy<G>> {
+pub struct GameStrategyPlayer<G: GameRepr, GS: GameStrategy<G>> {
     strategy: GS,
     carry: Option<GS::Carry>,
 }
 
-impl <G: MonteCarloGame, GS: GameStrategy<G>> GameStrategyPlayer<G, GS>{
+impl <G: GameRepr, GS: GameStrategy<G>> GameStrategyPlayer<G, GS>{
     pub fn new(strategy: GS) -> Self {
         Self {
             strategy,
@@ -30,7 +39,7 @@ impl <G: MonteCarloGame, GS: GameStrategy<G>> GameStrategyPlayer<G, GS>{
     }
 }
 
-impl <G: MonteCarloGame, GS: GameStrategy<G>> GamePlayer<G> for GameStrategyPlayer<G, GS> {
+impl <G: GameRepr, GS: GameStrategy<G>> GamePlayer<G> for GameStrategyPlayer<G, GS> {
     fn make_move(&mut self, game: &G, enemy_move: Option<G::MOVE>) -> G::MOVE {
         let carry = enemy_move.zip(replace(&mut self.carry, None));
         let (m, carry) = self.strategy.make_move(game, carry);
@@ -40,7 +49,7 @@ impl <G: MonteCarloGame, GS: GameStrategy<G>> GamePlayer<G> for GameStrategyPlay
 }
 
 pub struct PlayerInput;
-impl <G: MonteCarloGame> GamePlayer<G> for PlayerInput where G::MOVE: TryFrom<u32> {
+impl <G: MonteCarloGameND> GamePlayer<G> for PlayerInput where G::MOVE: TryFrom<u32> {
     fn make_move(&mut self, game: &G, _enemy_move: Option<G::MOVE>) -> G::MOVE {
         loop {
             let mut s = String::with_capacity(10);
@@ -73,7 +82,7 @@ impl <G: MonteCarloGame> GamePlayer<G> for PlayerInput where G::MOVE: TryFrom<u3
 
 pub struct RecordedMoves<T>(pub Vec<T>);
 
-impl <G: MonteCarloGame> GamePlayer<G> for RecordedMoves<G::MOVE> {
+impl <G: MonteCarloGameND> GamePlayer<G> for RecordedMoves<G::MOVE> {
     fn make_move(&mut self, _game: &G, _enemy_move: Option<G::MOVE>) -> G::MOVE {
         self.0.remove(0)
     }

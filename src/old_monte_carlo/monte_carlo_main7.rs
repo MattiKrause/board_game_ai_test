@@ -14,13 +14,17 @@ use crate::multi_score_reducer::{ExecutionLimiter, ExecutionLimiterFactory, Mult
 
 #[allow(dead_code)]
 pub struct MonteCarloStrategyV7<G, WRF> {
-    limit: MonteLimit, c: f64, wrf: WRF, seed: Option<[u8; 32]>, game: PhantomData<G>
+    limit: MonteLimit,
+    c: f64,
+    wrf: WRF,
+    seed: Option<[u8; 32]>,
+    game: PhantomData<G>,
 }
 
 pub struct MonteCarloCarry {
     allocator: Bump,
     playoff_buf: Bump,
-    rng: rand::rngs::SmallRng
+    rng: rand::rngs::SmallRng,
 }
 
 
@@ -29,6 +33,7 @@ enum MonteState<'b, G: MonteCarloGame> {
     Computed(MonteCarloState<'b, G>),
     Uncomputed(G::MOVE, &'b G),
 }
+
 #[derive(Debug)]
 struct MonteCarloChild<'b, G: MonteCarloGame>(MonteState<'b, G>);
 
@@ -118,7 +123,7 @@ impl<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> + ExecutionLimi
     }
 }
 
-fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> + ExecutionLimiterFactory<G>>(g: &G, bump: &Bump, tmp_buf: &mut Bump, rng: &mut impl Rng, limit: MonteLimit, c: f64, wr_factory: &W) -> G::MOVE where G::MOVE: Clone{
+fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> + ExecutionLimiterFactory<G>>(g: &G, bump: &Bump, tmp_buf: &mut Bump, rng: &mut impl Rng, limit: MonteLimit, c: f64, wr_factory: &W) -> G::MOVE where G::MOVE: Clone {
     let mut children = {
         let moves = g.moves().into_iter();
         let mut children = Vec::with_capacity(moves.size_hint().0);
@@ -144,20 +149,27 @@ fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactor
         playoff(next, wr_factory, bump, tmp_buf, rng, c);
     });
 
-    return children
+    let mut children = children
         .into_iter()
         .filter_map(|(m, c)| if let MonteState::Computed(s) = c.0 {
             Some((m, s))
         } else {
             None
         })
+        .collect::<Vec<_>>();
+    let correct_by = (-1.0) * children.iter().map(|(m, node)| node.wins).reduce(f64::min).unwrap_or(0.0);
+    children.iter_mut().for_each(|(_, s)| s.wins += correct_by);
+
+    let m = children.into_iter()
         .map(|(m, s)| {
-            (m, s.wins / s.visited)
+            (m, s.visited, s.wins / s.visited.sqrt())
         })
-        .inspect(|(m, wr)| println!("{m:?}: {wr}"))
-        .max_by(|m1, m2| m1.1.total_cmp(&m2.1))
+        .inspect(|(m, v, wr)| println!("{m:?}({v}): {wr}"))
+        .max_by(|(_, _, wr1), (_, _, wr2)| wr1.total_cmp(&wr2))
         .unwrap()
         .0;
+    println!("selected: {m:?}");
+    m
 }
 
 fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> + ExecutionLimiterFactory<G>>(
@@ -246,14 +258,14 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> +
 fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     rng: &mut impl Rng,
     mut children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
-    parent_visited: f64, c: f64
+    parent_visited: f64, c: f64,
 ) -> Option<usize> {
     let mut max_i = usize::MAX;
     let mut any_uncomputed = false;
     let mut max_score = f64::NEG_INFINITY;
     for (i, child) in children.enumerate() {
         match child.0 {
-            MonteState::Computed(MonteCarloState {visited: 0.0, ..}) | MonteState::Uncomputed(_, _) => {
+            MonteState::Computed(MonteCarloState { visited: 0.0, .. }) | MonteState::Uncomputed(_, _) => {
                 let rng_score = rng.gen::<f64>();
                 if !any_uncomputed || rng_score > max_score {
                     max_score = rng_score;
