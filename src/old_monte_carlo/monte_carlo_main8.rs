@@ -1,17 +1,18 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::thread::current;
+
 use std::time::{Duration, Instant};
+
 use bumpalo::Bump;
 use rand::{Rng, RngCore, SeedableRng, thread_rng};
-use rand::rngs::SmallRng;
+
 use rand::seq::SliceRandom;
-use crate::monte_carlo_game::{MonteCarloGame, Winner};
-use crate::{MonteLimit, WinReward};
+
+use crate::{MonteLimit};
 use crate::ai_infra::GameStrategy;
 use crate::monte_carlo_game_v2::{GameState, MonteCarloGameND};
-use crate::monte_carlo_win_reducer::{WinReducer, WinReducerFactory};
-use crate::multi_score_reducer::{ExecutionLimiter, ExecutionLimiterFactory, MultiScoreReducerFactory, ScoreReducer, TwoScoreReducer};
+
+use crate::multi_score_reducer::{ExecutionLimiter, ExecutionLimiterFactory, MultiScoreReducerFactory, ScoreReducer};
 
 #[allow(dead_code)]
 pub struct MonteCarloStrategyV8<G, WRF> {
@@ -162,7 +163,7 @@ fn make_monte_carlo_move<G: MonteCarloGameND + 'static, W: MultiScoreReducerFact
             None
         })
         .collect::<Vec<_>>();
-    let correct_by = (-1.0) * children.iter().map(|(m, node)| node.score).reduce(f64::min).unwrap_or(0.0);
+    let correct_by = (-1.0) * children.iter().map(|(_m, node)| node.score).reduce(f64::min).unwrap_or(0.0);
     children.iter_mut().for_each(|(_, s)| s.score += correct_by);
 
     let m = children.into_iter()
@@ -301,12 +302,12 @@ fn select_next_outcome<T>(
             *acc += rest.1.0;
             Some((*acc, rest))
         })
-        .find(|(chance, rest)| the_chance < *chance)
+        .find(|(chance, _rest)| the_chance < *chance)
         .map(|(_, (i, _))| i)
 }
 
 fn select_next_move<'c, 'b: 'c, G: MonteCarloGameND + 'static>(
-    mut children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
+    children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
     parent_visited: u32, c: f64,
 ) -> Option<usize> {
     let parent_visited = parent_visited as f64;
@@ -319,7 +320,7 @@ fn select_next_move<'c, 'b: 'c, G: MonteCarloGameND + 'static>(
             MonteCarloChild::Uncomputed(_) => return Some(i),
         };
         let mov_fac = 1.0 / mov.visits.max(1) as f64;
-        let mut score = (mov.score * mov_fac) + (parent_fac * mov_fac).sqrt();
+        let score = (mov.score * mov_fac) + (parent_fac * mov_fac).sqrt();
         if score > max_score && mov.non_leaf_count > 0 {
             max_i = i;
             max_score = score;

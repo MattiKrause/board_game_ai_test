@@ -2,8 +2,8 @@ use std::mem::size_of;
 use std::time::{Duration, Instant};
 use bumpalo::Bump;
 use rand::{Rng, RngCore, SeedableRng, thread_rng};
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
+
+
 use crate::monte_carlo_game::{MonteCarloGame, Winner};
 use crate::{MonteLimit, WinReward};
 use crate::ai_infra::GameStrategy;
@@ -235,7 +235,7 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: WinReducerFactory>(
 fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     rng: &mut impl Rng,
     tmp_buf: &Bump,
-    mut children: impl Iterator<Item=&'c mut MonteCarloChild<'b, G>>,
+    children: impl Iterator<Item=&'c mut MonteCarloChild<'b, G>>,
     parent_visited: f64, c: f64
 ) -> Option<&'d mut MonteCarloChild<'b, G>> {
     let children_assume_size = {
@@ -260,9 +260,9 @@ fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
 
     let parent_factor = parent_visited.ln();
 
-    let mut scores = tmp_buf.alloc_slice_fill_iter(existing.iter().map(|child| {
+    let scores = tmp_buf.alloc_slice_fill_iter(existing.iter().map(|child| {
         let child = child.1.as_ref().unwrap();
-        let mut score = (child.wins / child.visited) + c * (parent_factor / child.visited).sqrt();
+        let score = (child.wins / child.visited) + c * (parent_factor / child.visited).sqrt();
         debug_assert!(!score.is_nan());
         score
     }));

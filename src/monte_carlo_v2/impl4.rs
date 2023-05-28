@@ -249,7 +249,7 @@ fn select_next<T: MonteCarloGame>(parent: &MCNode<T>, moves: &[(MCNodeId<T>, T::
     }
     debug_assert!(highest_score >= 0.0);
 
-    let mut rng_value = context.rng.borrow_mut().gen_range(0.0..=highest_score);
+    let rng_value = context.rng.borrow_mut().gen_range(0.0..=highest_score);
     scores.iter().enumerate().find_map(|(i, s)| (*s <= rng_value).then_some(i))
 }
 

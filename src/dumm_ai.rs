@@ -11,7 +11,7 @@ impl <G: MonteCarloGame> GameStrategy<G> for DummAi {
     type Carry = SmallRng;
     type Config = ();
 
-    fn new(config: Self::Config) -> Self {
+    fn new(_config: Self::Config) -> Self {
         Self
     }
 

@@ -36,7 +36,7 @@ const fn is_tie(board: u32) -> bool {
 
 impl MonteCarloGame for TicTacToe {
     type MOVE = TicTacToeMove;
-    type MOVES<'s> where Self: 's = TicTacToeMoves;
+    type MOVES<'s> = TicTacToeMoves where Self: 's ;
 
     fn new() -> Self {
         let me = Self { game_state: 0 | 1 << 31 };
@@ -120,7 +120,6 @@ impl Iterator for TicTacToeMoves {
     type Item = TicTacToeMove;
 
     fn next(&mut self) -> Option<Self::Item> {
-        use TicTacToeMove::*;
         let next = self.remaining.trailing_zeros();
         if let Some(m) = TicTacToeMove::try_from(next).ok() {
             self.remaining ^= 1 << next;

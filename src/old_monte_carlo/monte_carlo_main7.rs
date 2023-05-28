@@ -1,16 +1,18 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::thread::current;
+
 use std::time::{Duration, Instant};
+
 use bumpalo::Bump;
 use rand::{Rng, RngCore, SeedableRng, thread_rng};
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
-use crate::monte_carlo_game::{MonteCarloGame, Winner};
-use crate::{MonteLimit, WinReward};
+
+
+
+use crate::{MonteLimit};
 use crate::ai_infra::GameStrategy;
-use crate::monte_carlo_win_reducer::{WinReducer, WinReducerFactory};
-use crate::multi_score_reducer::{ExecutionLimiter, ExecutionLimiterFactory, MultiScoreReducerFactory, ScoreReducer, TwoScoreReducer};
+use crate::monte_carlo_game::{MonteCarloGame, Winner};
+
+use crate::multi_score_reducer::{ExecutionLimiter, ExecutionLimiterFactory, MultiScoreReducerFactory, ScoreReducer};
 
 #[allow(dead_code)]
 pub struct MonteCarloStrategyV7<G, WRF> {
@@ -43,7 +45,6 @@ struct MonteCarloState<'b, G: MonteCarloGame> {
     visited: f64,
     wins: f64,
     leaf_count: u16,
-    winner: Option<Winner>,
 }
 
 
@@ -63,7 +64,6 @@ impl<'b, G: MonteCarloGame> MonteCarloState<'b, G> {
             visited: 0.0,
             wins: 0.0,
             leaf_count: 0,
-            winner,
         }
     }
 }
@@ -157,7 +157,7 @@ fn make_monte_carlo_move<G: MonteCarloGame + 'static, W: MultiScoreReducerFactor
             None
         })
         .collect::<Vec<_>>();
-    let correct_by = (-1.0) * children.iter().map(|(m, node)| node.wins).reduce(f64::min).unwrap_or(0.0);
+    let correct_by = (-1.0) * children.iter().map(|(_m, node)| node.wins).reduce(f64::min).unwrap_or(0.0);
     children.iter_mut().for_each(|(_, s)| s.wins += correct_by);
 
     let m = children.into_iter()
@@ -183,7 +183,6 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> +
     let mut el = <W as ExecutionLimiterFactory<G>>::create(wr_config);
     let mut path = Vec::with_capacity(30);
     let mut next = next;
-    let winner;
     let final_game_state;
     loop {
         let mut win_state = None;
@@ -215,7 +214,6 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> +
         };
         current.visited += 1.0;
         if let Some((g, w)) = win_state {
-            winner = w;
             final_game_state = g;
             current.leaf_count += 1;
             break;
@@ -257,7 +255,7 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G> +
 
 fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     rng: &mut impl Rng,
-    mut children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
+    children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
     parent_visited: f64, c: f64,
 ) -> Option<usize> {
     let mut max_i = usize::MAX;
@@ -265,7 +263,7 @@ fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     let mut max_score = f64::NEG_INFINITY;
     for (i, child) in children.enumerate() {
         match child.0 {
-            MonteState::Computed(MonteCarloState { visited: 0.0, .. }) | MonteState::Uncomputed(_, _) => {
+            MonteState::Uncomputed(_, _) => {
                 let rng_score = rng.gen::<f64>();
                 if !any_uncomputed || rng_score > max_score {
                     max_score = rng_score;
@@ -274,7 +272,8 @@ fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
                 any_uncomputed = true;
             }
             MonteState::Computed(ref child) => {
-                let score = (child.wins / child.visited) + c * (parent_visited.ln() / child.visited).sqrt();
+                let child_visited = child.visited.max(1.0);
+                let score = (child.wins / child_visited) + c * (parent_visited.ln() / child_visited).sqrt();
                 if !any_uncomputed && score > max_score && (child.leaf_count as usize) < child.children.len() {
                     max_i = i;
                     max_score = score;

@@ -1,7 +1,6 @@
 use std::io::stdin;
 use std::mem::replace;
 use crate::monte_carlo_game_v2::MonteCarloGameND;
-use crate::MonteCarloGame;
 
 pub trait GameRepr {
     type MOVE;

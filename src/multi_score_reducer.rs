@@ -1,7 +1,7 @@
-use std::marker::PhantomData;
+
 use std::ops::ControlFlow;
 use crate::monte_carlo_game::{MonteCarloGame, Winner};
-use crate::monte_carlo_win_reducer::{WinFactorReduceFactory, WinReducer, WinReducerFactory};
+use crate::monte_carlo_win_reducer::{WinReducer, WinReducerFactory};
 
 pub trait CheckWinMonteCarloGame: MonteCarloGame {
     fn win_state(&self) -> Option<Winner>;
@@ -24,7 +24,7 @@ pub trait ExecutionLimiterFactory<G> {
 
 pub trait ExecutionLimiter<G> {
     fn next(&mut self, child_count: usize) -> std::ops::ControlFlow<(), ()>;
-    fn next_with_game(&mut self, child_count: usize, game: &G) -> std::ops::ControlFlow<(), ()> {
+    fn next_with_game(&mut self, child_count: usize, _game: &G) -> std::ops::ControlFlow<(), ()> {
         self.next(child_count)
     }
 }
@@ -122,7 +122,7 @@ impl <G: CheckWinMonteCarloGame, F1: WinReducerFactoryWinInit, F2: WinReducerFac
 }
 
 impl <G, F1, F2> MultiScoreReducerFactory<G> for TwoScoreReducerExecutionLimiterFactory<F1, F2> where TwoScoreReducerFactory<F1, F2>: MultiScoreReducerFactory<G> {
-    type WR<'a> where Self: 'a = <TwoScoreReducerFactory<F1, F2> as MultiScoreReducerFactory<G>>::WR<'a>;
+    type WR<'a> = <TwoScoreReducerFactory<F1, F2> as MultiScoreReducerFactory<G>>::WR<'a> where Self: 'a;
 
     fn create<'wr>(&'wr self, game: &'_ G) -> Self::WR<'wr> {
         self.fac.create(game)
@@ -142,7 +142,7 @@ impl <G, WR1: WinReducer, WR2: WinReducer> ExecutionLimiter<G> for TwoScoreReduc
 }
 
 impl <G, F1: GetMostExtremeSourceScore, F2: GetMostExtremeSourceScore> ExecutionLimiterFactory<G> for TwoScoreReducerExecutionLimiterFactory<F1, F2> {
-    type EL<'a> where Self: 'a = TwoScoreReducerExecutionLimiter<F1::WR, F2::WR>;
+    type EL<'a> = TwoScoreReducerExecutionLimiter<F1::WR, F2::WR> where Self: 'a ; 
 
     fn create(&self) -> Self::EL<'_> {
         let extreme1 = self.fac.fac_1.get_most_extreme();

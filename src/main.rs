@@ -1,23 +1,25 @@
 extern crate core;
 
-use std::collections::{HashMap, HashSet};
-use std::num::NonZeroU64;
-use std::rc::Rc;
-use crate::ai_infra::*;
-use crate::line_four_8x8::{LineFour8x8, LineFour8x8Index};
-use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
+
+
+
+
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
-use old_monte_carlo::monte_carlo_main4::MonteCarloStrategyV4;
+
+
+use crate::ai_infra::*;
 use crate::dumm_ai::DummAi;
-use crate::monte_carlo_v2::{MonteCarloConfigV2I4, MonteCarloV2I1, MonteCarloV2I2, MonteCarloV2I3, MonteCarloV2I4};
+use crate::line_four_8x8::{LineFour8x8};
+use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
+
 use crate::monte_carlo_win_reducer::{ScoreAveragerFactory, WinFactorReduceFactory, WinIdentFactory};
-use crate::multi_score_reducer::{TwoScoreReducerExecutionLimiterFactory, TwoScoreReducerFactory, WinRewardInit};
-use crate::old_monte_carlo::monte_carlo_main5::MonteCarloStrategyV5;
-use crate::old_monte_carlo::monte_carlo_main6::MonteCarloStrategyV6;
-use crate::old_monte_carlo::monte_carlo_main7::MonteCarloStrategyV7;
+use crate::multi_score_reducer::{TwoScoreReducerFactory, WinRewardInit};
+
+
+
 use crate::old_monte_carlo::monte_carlo_main8::MonteCarloStrategyV8;
-use crate::tic_tac_toe::TicTacToe;
+
 
 mod line_four_7x6;
 mod monte_carlo_game;
@@ -48,7 +50,7 @@ fn main() {
         );
 
         let trs1 = score_reducer1.limiter_from(0.0001);
-        let trs2 = score_reducer2.limiter_from(0.0001);
+        let _trs2 = score_reducer2.limiter_from(0.0001);
 
         let config: [Box<dyn GamePlayer<_>>; 2] = [
             //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),
@@ -85,7 +87,7 @@ fn run_games<G: MonteCarloGame + 'static, F: FnMut() -> [Box<dyn GamePlayer<G>>;
         let (winner, game) = run_game(config, true);
         match winner {
             Winner::WIN => {
-                let mut player = game.player();
+                let player = game.player();
                 match player {
                     TwoPlayer::P1 => *p1_win_ref += 1,
                     TwoPlayer::P2 => *p2_win_ref += 1,

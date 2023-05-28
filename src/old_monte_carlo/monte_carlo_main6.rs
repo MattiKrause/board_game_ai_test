@@ -1,16 +1,17 @@
 use std::marker::PhantomData;
 use std::mem::size_of;
-use std::thread::current;
+
 use std::time::{Duration, Instant};
+
 use bumpalo::Bump;
 use rand::{Rng, RngCore, SeedableRng, thread_rng};
-use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
-use crate::monte_carlo_game::{MonteCarloGame, Winner};
-use crate::{MonteLimit, WinReward};
+
+
+
+use crate::{MonteLimit};
 use crate::ai_infra::GameStrategy;
-use crate::monte_carlo_win_reducer::{WinReducer, WinReducerFactory};
-use crate::multi_score_reducer::{MultiScoreReducerFactory, ScoreReducer, TwoScoreReducer};
+use crate::monte_carlo_game::{MonteCarloGame, Winner};
+use crate::multi_score_reducer::{MultiScoreReducerFactory, ScoreReducer};
 
 #[allow(dead_code)]
 pub struct MonteCarloStrategyV6<G: MonteCarloGame, WRF: MultiScoreReducerFactory<G>> {
@@ -38,7 +39,6 @@ struct MonteCarloState<'b, G: MonteCarloGame> {
     visited: f64,
     wins: f64,
     leaf_count: u16,
-    winner: Option<Winner>,
 }
 
 
@@ -58,7 +58,6 @@ impl<'b, G: MonteCarloGame> MonteCarloState<'b, G> {
             visited: 0.0,
             wins: 0.0,
             leaf_count: 0,
-            winner,
         }
     }
 }
@@ -170,7 +169,6 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
 ) {
     let mut path = Vec::with_capacity(30);
     let mut next = next;
-    let winner;
     let final_game_state;
     loop {
         let mut win_state = None;
@@ -197,7 +195,6 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
         };
         current.visited += 1.0;
         if let Some((g, w)) = win_state {
-            winner = w;
             final_game_state = g;
             current.leaf_count += 1;
             break;
@@ -238,7 +235,7 @@ fn playoff<'a, 'b, G: MonteCarloGame + 'static, W: MultiScoreReducerFactory<G>>(
 
 fn select_next<'c: 'd, 'd, 'b: 'c, G: MonteCarloGame + 'static>(
     rng: &mut impl Rng,
-    mut children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
+    children: impl Iterator<Item=&'c MonteCarloChild<'b, G>>,
     parent_visited: f64, c: f64
 ) -> Option<usize> {
     let mut max_i = usize::MAX;
