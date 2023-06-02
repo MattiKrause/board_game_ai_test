@@ -98,7 +98,7 @@ macro_rules! monte_carlo_loop {
                 }
             }
         }
-        println!("operations: {}", $operations);
+        log::debug!("operations: {}", $operations);
     };
 }
 
@@ -170,11 +170,11 @@ fn make_monte_carlo_move<G: MonteCarloGameND + 'static, W: MultiScoreReducerFact
         .map(|(m, s)| {
             (m, s.visits, s.score / s.visits as f64)
         })
-        .inspect(|(m, v, wr)| println!("{m:?}({v}): {wr}"))
+        .inspect(|(m, v, wr)| log::debug!("{m:?}({v}): {wr}"))
         .max_by(|(_, _, wr1), (_, _, wr2)| wr1.total_cmp(&wr2))
         .unwrap()
         .0;
-    println!("selected: {m:?}");
+    log::debug!("selected: {m:?}");
     m
 }
 

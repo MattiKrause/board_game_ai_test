@@ -1,15 +1,14 @@
 extern crate core;
 
 
-
-
-
+use log::LevelFilter;
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
 
 
 use crate::ai_infra::*;
 use crate::dumm_ai::DummAi;
+use crate::genetic_algo_op::opt;
 use crate::line_four_8x8::{LineFour8x8};
 use crate::monte_carlo_game::{MonteCarloGame, TwoPlayer, Winner};
 
@@ -32,10 +31,14 @@ mod multi_score_reducer;
 mod tic_tac_toe;
 mod monte_carlo_game_v2;
 mod dumm_ai;
+mod genetic_algo_op;
 
 fn main() {
-
     println!("Hello, world!");
+    env_logger::builder().filter_level(LevelFilter::Info).init();
+    //rayon::ThreadPoolBuilder::new().num_threads(4).build_global().expect("failed to build thread pool");
+    //opt::<LineFour8x8>();
+
     run_games::<LineFour8x8,  _>(15, || {
         let long_view_eval = WinFactorReduceFactory { by: 0.5 };
         let score_reducer1 = TwoScoreReducerFactory::new(
@@ -51,6 +54,8 @@ fn main() {
 
         let trs1 = score_reducer1.limiter_from(0.0001);
         let _trs2 = score_reducer2.limiter_from(0.0001);
+
+        //let best_ai = genetic_algo_op::load_best_from_pop::<LineFour8x8>(MonteLimit::duration(100)).expect("no impl");
 
         let config: [Box<dyn GamePlayer<_>>; 2] = [
             //Box::new(MonteCarloStrategyV4::strategy_of((MonteLimit::duration(1000),0.5, half_wr, win_reward1))),

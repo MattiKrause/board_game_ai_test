@@ -39,14 +39,17 @@ pub struct TwoScoreReducerFactory<F1, F2> {
     fac_1: F1, fac_2: F2
 }
 
+#[derive(Clone)]
 pub struct TwoScoreReducerExecutionLimiterFactory<F1, F2> {
     threshold: f64, fac: TwoScoreReducerFactory<F1, F2>
 }
 
+#[derive(Clone)]
 pub struct TwoScoreReducerExecutionLimiter<WR1, WR2> {
     wr1: WR1, wr2: WR2, treshold: f64
 }
 
+#[derive(Clone)]
 pub struct TwoScoreReducer<R1, R2>(R1, R2, bool);
 
 pub trait WinReducerFactoryWinInit {
@@ -142,7 +145,7 @@ impl <G, WR1: WinReducer, WR2: WinReducer> ExecutionLimiter<G> for TwoScoreReduc
 }
 
 impl <G, F1: GetMostExtremeSourceScore, F2: GetMostExtremeSourceScore> ExecutionLimiterFactory<G> for TwoScoreReducerExecutionLimiterFactory<F1, F2> {
-    type EL<'a> = TwoScoreReducerExecutionLimiter<F1::WR, F2::WR> where Self: 'a ; 
+    type EL<'a> = TwoScoreReducerExecutionLimiter<F1::WR, F2::WR> where Self: 'a ;
 
     fn create(&self) -> Self::EL<'_> {
         let extreme1 = self.fac.fac_1.get_most_extreme();
