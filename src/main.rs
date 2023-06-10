@@ -1,6 +1,7 @@
 extern crate core;
 
 
+use std::mem::size_of;
 use log::LevelFilter;
 use old_monte_carlo::monte_carlo_main::*;
 use old_monte_carlo::monte_carlo_main3::*;
@@ -32,12 +33,14 @@ mod tic_tac_toe;
 mod monte_carlo_game_v2;
 mod dumm_ai;
 mod genetic_algo_op;
+mod uno_basic_game;
 
 fn main() {
     println!("Hello, world!");
     env_logger::builder().filter_level(LevelFilter::Info).init();
     //rayon::ThreadPoolBuilder::new().num_threads(4).build_global().expect("failed to build thread pool");
     //opt::<LineFour8x8>();
+
 
     run_games::<LineFour8x8,  _>(15, || {
         let long_view_eval = WinFactorReduceFactory { by: 0.5 };
