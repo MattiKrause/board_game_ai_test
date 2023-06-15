@@ -43,7 +43,7 @@ enum CurrentPlayer {
 
 #[repr(u8)]
 enum PlayerAmount {
-    Two = 2, Three = 3, For = 4
+    Two = 2, Three = 3, Four = 4
 }
 
 // bit 0-1: Color
@@ -63,16 +63,19 @@ enum UnoMoveErr {
     CardCannotBePlaced, SelectedCardNotInHand, ColorChoosingRequired, ColorChoosingNotRequired, NothingNotNecessary
 }
 
-static INITIAL_CARDS: [u8; 108] = initial_cards();
-
 
 const PLAYER_COUNT_OFF: u64 = 0;
 const CURRENT_PLAYER_OFF: u64 = 2;
 const NEXT_PLAYER_DIRECTION_OFF: u64 = 4;
 const PLAYER_CARD_OFFSET_OFF: u64 = 5;
-const DRAW_STACK_OFFSET_OFF: u64 = 29;
-const DRAW_CARDS_CARRY_OFF: u64 = 34;
-const SEED_OFF: u64 = 38;
+const DRAW_STACK_OFFSET_OFF: u64 = 33;
+const DRAW_CARDS_CARRY_OFF: u64 = 40;
+const SEED_OFF: u64 = 45;
+
+const CARD_OFFSET_BITS: u64 = 7;
+const CARD_OFFSET_MASK: u64 = !(u64::MAX << CARD_OFFSET_BITS);
+
+const DRAW_CARD_CARRY_MASK: u64 = 0b1111;
 
 const UNO_CARD_REVERSE: u8 = 10;
 const UNO_CARD_SKIP: u8 = 11;
@@ -82,17 +85,14 @@ const UNO_CARD_CHOOSE_COLOR_BLACK: u8 = 14;
 const UNO_CARD_DRAW_FOUR: u8 = 15;
 const UNO_CARD_SMALLEST_BLACK: u8 = 14;
 
-const BACK_STACK: usize = 1;
+const DISCARD_STACK_OFF: usize = 1;
 const OPEN_CARD_IDX: usize = 0;
 
 const UNO_CARD_COLOR_MASK: u8 = 0b11;
 const UNO_CARD_KIND_OFF: u8 = 2;
 const UNO_CARD_COLOR_OFF: u8 = 0;
 
-const CARD_OFFSET_MASK: u64 = 0b111_111;
-const DRAW_CARD_CARRY_MASK: u64 = 0b1111;
-
-const fn initial_cards() -> [u8; 108] {
+fn initial_cards() -> [u8; 108] {
     let mut accum = [0u8; 108];
     let mut accum_index = 0;
 
@@ -100,30 +100,16 @@ const fn initial_cards() -> [u8; 108] {
         ($v: expr) => {accum[accum_index] = $v; accum_index += 1;};
     }
 
-    let mut color = 0;
-    while color < 4 {
-        let color = {
-            let c_ = color;
-            color += 1;
-            c_
-        };
+    for color in 0..4 {
         wa!(color);//zero cards(only one is inserted)
-        wa!(13 >> 2);
-        wa!(14 >> 2);
-
-        let mut kind = 0;
-
-        while kind < 4 {
-            let kind = {
-                let k_ = kind;
-                kind += 1;
-                k_
-            };
-
-            wa!(kind >> 2);
+        wa!(UNO_CARD_CHOOSE_COLOR_BLACK << UNO_CARD_KIND_OFF);
+        wa!(UNO_CARD_DRAW_FOUR << UNO_CARD_KIND_OFF);
+        for kind in 1..13 {
+            wa!((kind << UNO_CARD_KIND_OFF) | color);
+            wa!((kind << UNO_CARD_KIND_OFF) | color);
         }
     }
-
+    assert_eq!(accum_index, accum.len());
     accum
 }
 
@@ -133,7 +119,7 @@ impl Uno {
     fn new(seed: u32,  player_count: PlayerAmount) -> Self {
         let seed = seed & (u32::MAX >> (64 - SEED_OFF as u32));
 
-        let mut cards = INITIAL_CARDS;
+        let mut cards = initial_cards();
         let mut running_seed = seed;
         for i in (1..cards.len()).rev() {
             let idx = generate_random_num(&mut running_seed) as usize % i;
@@ -143,14 +129,14 @@ impl Uno {
         let player_count = player_count as u64 - 2;
         let current_player = 0;
         let mut player_offs = [0, 7, 14, 14];
-        if player_count == 1 {
+        if player_count >= 1 {
             player_offs[3] += 7;
         }
         player_offs.iter_mut().for_each(|o| *o += 1);
 
-        let draw_stack_off = player_offs[3] + 7;
+        let draw_stack_off = player_offs[player_count as usize + 1] + 7;
 
-        let player_off_bits = player_offs.into_iter().enumerate().map(|(i, p)| p << i as u64 * 6).fold(0,u64::bitor);
+        let player_off_bits = player_offs.into_iter().enumerate().map(|(i, p)| p << i as u64 * CARD_OFFSET_BITS).fold(0,u64::bitor);
         let meta_data = (player_count << PLAYER_COUNT_OFF) | (current_player << CURRENT_PLAYER_OFF) | (1 << NEXT_PLAYER_DIRECTION_OFF) | (player_off_bits << PLAYER_CARD_OFFSET_OFF) | (draw_stack_off << DRAW_STACK_OFFSET_OFF) | ((seed as u64) << SEED_OFF);
 
         Self {
@@ -171,6 +157,11 @@ impl Uno {
         let start = self.meta_data.get_current_card_offset(p) as usize;
         let end = self.meta_data.get_next_card_offset(p) as usize;
         Some(self.cards[start..end].iter().copied())
+    }
+
+    fn get_discard_stack_cards(&self) ->  impl Iterator<Item = u8> + '_ {
+        let discard_stack_end = self.meta_data.get_index_after_discard_stack() as usize;
+        self.cards[1..discard_stack_end].iter().copied()
     }
 }
 
@@ -252,9 +243,7 @@ impl GameWithMoves for Uno {
                      self.cards[OPEN_CARD_IDX] = selected_card;
                  }
 
-                 self.meta_data.add_to_all_offsets_starting_at(0, 1);
-
-
+                 self.meta_data.add_to_all_offset_before_including(current_player, 1);
 
                  if is_draw_card(open_card) && !is_draw_card(selected_card) {
                      let next_offset = self.meta_data.get_next_card_offset(current_player);
@@ -331,8 +320,8 @@ impl GameWithMoves for Uno {
 
                  match viable_card {
                      Some((i, _)) => {
-                         let drawn_cards = (i + 1) - draw_stack_offset;
-                         rotate_by(&mut self.cards[next_offset..=i], drawn_cards);
+                         let drawn_cards = i + 1;
+                         rotate_by(&mut self.cards[next_offset..=(i + draw_stack_offset)], drawn_cards);
                          self.meta_data.add_to_all_offsets_after(current_player, drawn_cards as u64);
                      }
                      None => {
@@ -386,6 +375,7 @@ impl std::fmt::Debug for UnoMetadata {
             .field("draw_card_carry", &((self.0 >> DRAW_CARDS_CARRY_OFF) & DRAW_CARD_CARRY_MASK))
             .field("player_card_offsets", &&self.get_all_offsets()[0..4])
             .field("draw_stack_offset", &self.get_all_offsets()[4])
+            .field("seed", &(self.0 >> SEED_OFF))
             .finish()
     }
 }
@@ -397,7 +387,7 @@ impl UnoMetadata {
 
     fn _get_card_offset(&self, offset_of: u64) -> u64 {
         debug_assert!(offset_of < 5);
-        let card_offset = (self.0 >> (PLAYER_CARD_OFFSET_OFF + 6 * offset_of)) & CARD_OFFSET_MASK;
+        let card_offset = (self.0 >> (PLAYER_CARD_OFFSET_OFF + CARD_OFFSET_BITS * offset_of)) & CARD_OFFSET_MASK;
         debug_assert!(card_offset <= 108);
         card_offset
     }
@@ -435,9 +425,9 @@ impl UnoMetadata {
     }
 
     fn get_all_offsets(&self) -> [u64; 5] {
-        let offsets = std::array::from_fn(|i| i as u64 * 6).map(|o| ((self.0 >> PLAYER_CARD_OFFSET_OFF) >> o) & CARD_OFFSET_MASK);
+        let offsets = std::array::from_fn(|i| i as u64 * CARD_OFFSET_BITS).map(|o| ((self.0 >> PLAYER_CARD_OFFSET_OFF) >> o) & CARD_OFFSET_MASK);
 
-        debug_assert!(offsets.iter().all(|offset| *offset <= 108));
+        debug_assert!(offsets.iter().all(|offset| *offset <= 108), "offsets: {offsets:?}");
         offsets
     }
 
@@ -468,14 +458,18 @@ impl UnoMetadata {
 
     fn subtract_from_all_offsets(&mut self, value: u64) {
         let prev_offsets = self.get_all_offsets();
-        let old_metadata = self.0;
+        let old_metadata = self.clone();
+
         debug_assert!(prev_offsets.into_iter().all(|offset| offset >= value));
 
-        let sub = (0..5).fold(0, |acc, value| (acc << 6) | value);
-        self.0 -= sub;
+        let sub = (0..5).map(|i| value << (CARD_OFFSET_BITS * i)).fold(0, u64::bitor);
+        self.0 -= sub << PLAYER_CARD_OFFSET_OFF;
+
 
         let new_offsets = self.get_all_offsets();
-        debug_assert_eq!((self.0 ^ old_metadata) & (!(u64::MAX << (6 * 5)) << PLAYER_CARD_OFFSET_OFF), 0);
+        let m1 = !(u64::MAX << (5 * CARD_OFFSET_BITS));
+        let m2 = !(m1 << PLAYER_CARD_OFFSET_OFF);
+        debug_assert_eq!((self.0 ^ old_metadata.0) & m2, 0);
         debug_assert!((0..5).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| new == old - value))
     }
 
@@ -488,38 +482,56 @@ impl UnoMetadata {
         debug_assert!(player <= 4);
         let prev_offsets = self.get_all_offsets();
         let old_metadata = self.clone();
-        let offsets_bitdata = (self.0 >> PLAYER_CARD_OFFSET_OFF) & !(u64::MAX << (5 * 6));
-        println!("alldata{:30b}", !(u64::MAX << (5 * 6)));
-        println!("bitdata{:30b}", offsets_bitdata);
-        debug_assert!(prev_offsets.iter().copied().all(|offset| offset + value <= 108));
-        let add = (0..5).map(|o| value << (o * 6)).fold(0, u64::bitor);
-        let add_after_mask = u64::MAX << (6 * player);
-        println!("adddata{:30b}", (add & add_after_mask));
-        println!("resdata{:30b}", add + offsets_bitdata);
+        debug_assert!(prev_offsets[(player as  usize)..].iter().copied().all(|offset| offset + value <= 108));
+        let add = (0..5).map(|o| value << (o * CARD_OFFSET_BITS)).fold(0, u64::bitor);
+        let add_after_mask = u64::MAX << (CARD_OFFSET_BITS * player);
         self.0 += (add & add_after_mask) << PLAYER_CARD_OFFSET_OFF;
 
         let new_offsets = self.get_all_offsets();
 
-        dbg!(&self, old_metadata, player, value);
-        let m1 = !(u64::MAX << (5 * 6));
+        let m1 = !(u64::MAX << (5 * CARD_OFFSET_BITS));
+        let m2 = !(m1 << PLAYER_CARD_OFFSET_OFF);
+        debug_assert_eq!((self.0 ^ old_metadata.0) & m2, 0, "diff: {:64b}, offset: {}\\old metadata: {old_metadata:#?}\\ new metadata: {self:#?}", (old_metadata.0 ^ self.0) & m2, ((old_metadata.0 ^ self.0) & m2).trailing_zeros());
+
+
+        debug_assert!((0..(player as usize)).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| old == new));
+        debug_assert!(((player as usize)..5).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| new == old + value));
+    }
+
+    fn add_to_all_offset_before_including(&mut self, player: u64, value: u64) {
+        self.add_to_all_offset_before(player + 1, value)
+    }
+
+    fn add_to_all_offset_before(&mut self, player: u64, value: u64) {
+        debug_assert!(player < 5);
+        let prev_offsets = self.get_all_offsets();
+        let old_metadata = self.clone();
+        debug_assert!(prev_offsets[..(player as usize)].iter().copied().all(|offset| offset + value <= 108));
+        let add = (0..5).map(|o| value << (o * CARD_OFFSET_BITS)).fold(0, u64::bitor);
+        let add_after_mask = u64::MAX << (CARD_OFFSET_BITS * player);
+        self.0 += (add & !add_after_mask) << PLAYER_CARD_OFFSET_OFF;
+
+        let new_offsets = self.get_all_offsets();
+
+        let m1 = !(u64::MAX << (5 * CARD_OFFSET_BITS));
         let m2 = !(m1 << PLAYER_CARD_OFFSET_OFF);
         debug_assert_eq!((self.0 ^ old_metadata.0) & m2, 0);
 
-        debug_assert!((0..(player as usize)).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| old == new));
-        debug_assert!(((player as usize + 1)..5).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| new == old + value));
+        debug_assert!(((player as usize)..5).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| old == new));
+        debug_assert!((0..(player as usize)).map(|i| (prev_offsets[i], new_offsets[i])).all(|(old, new)| new == old + value));
     }
 }
 
 fn randomise_discard_stack(uno: &mut Uno) {
 
     let seed = uno.meta_data.0 ^ uno.cards.iter().fold(0u64, |a, b| a.rotate_left(8) ^ (*b as u64));
-    let mut seed = (seed as u32).mul((seed >> 32) as u32);
+    let mut seed = (seed as u32).wrapping_mul((seed >> 32) as u32);
 
     let discard_stack_end = uno.meta_data.get_index_after_discard_stack();
     let discard_stack_end = discard_stack_end as usize;
     let discard_stack = &mut uno.cards[1..discard_stack_end];
     for i in 1..discard_stack.len() {
-        let j = generate_random_num(&mut seed) as usize;
+        let j = generate_random_num(&mut seed) as usize % i;
         uno.cards.swap(i, j);
     }
 }
@@ -585,7 +597,7 @@ fn can_first_be_put_onto_second(selected: u8, open_card: u8) -> bool {
 
 fn post_process_open_card(card: u8) -> u8 {
     let card_is_color_choose = (card >> UNO_CARD_KIND_OFF) == UNO_CARD_CHOOSE_COLOR_COLORED;
-    let processed_card = card ^ (card_is_color_choose as u8 * (UNO_CARD_CHOOSE_COLOR_COLORED ^ UNO_CARD_CHOOSE_COLOR_BLACK));
+    let processed_card = card ^ (card_is_color_choose as u8 * ((UNO_CARD_CHOOSE_COLOR_COLORED ^ UNO_CARD_CHOOSE_COLOR_BLACK) << UNO_CARD_KIND_OFF));
     debug_assert_ne!(processed_card >> UNO_CARD_KIND_OFF, UNO_CARD_CHOOSE_COLOR_COLORED);
     processed_card
 }
@@ -679,8 +691,16 @@ fn card_repr_to_card_num(card_repr: CardRepr) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use regex::internal::Input;
     use crate::monte_carlo_game::GameWithMoves;
-    use crate::uno_basic_game::{can_first_be_put_onto_second, card_num_to_card_repr, card_repr_to_card_num, CardColor, CardRepr, ColoredCardKind, EffectCardKind, NumberCardKind, PlayerAmount, rotate_by, rotate_by_reverse, SpecialCardKind, Uno, UNO_CARD_CHOOSE_COLOR_BLACK, UNO_CARD_CHOOSE_COLOR_COLORED, UNO_CARD_KIND_OFF, UnoMoveEnum};
+    use crate::uno_basic_game::{can_first_be_put_onto_second, card_num_to_card_repr, card_repr_to_card_num, CardColor, CardRepr, ColoredCardKind, EffectCardKind, initial_cards, NumberCardKind, PlayerAmount, rotate_by, rotate_by_reverse, SpecialCardKind, Uno, UNO_CARD_CHOOSE_COLOR_BLACK, UNO_CARD_CHOOSE_COLOR_COLORED, UNO_CARD_KIND_OFF, UnoMove, UnoMoveEnum, UnoMoveErr};
+
+    macro_rules! assert_matches {
+        ($exp: expr, $pat: pat) => {
+            let result = $exp;
+            assert!(matches!(result, $pat), "assertion failed: {result:?} is not {}", stringify!($pat));
+        };
+    }
 
     impl From<(CardColor, NumberCardKind)> for CardRepr {
         fn from((color, kind): (CardColor, NumberCardKind)) -> Self {
@@ -779,13 +799,14 @@ mod tests {
 
         let card_index_1 = {
             let open_card = uno.get_open_card();
-            let (c_i, _) = p1_cards.iter().enumerate()
+            let (c_i, c) = p1_cards.iter().enumerate()
                 .find(|(_, card)| can_first_be_put_onto_second(**card, open_card))
                 .unwrap();
             c_i
         };
-        dbg!(&p1_cards, &p2_cards, p1_cards[card_index_1]);
+
         uno.execute_move(&UnoMoveEnum::ChooseCard(card_index_1.try_into().unwrap()).into()).unwrap();
+        assert_eq!(p2_cards, uno.get_p_cards(1).unwrap().collect::<Vec<_>>());
         let card_index_2 = {
             let open_card = uno.get_open_card();
             assert_eq!(p1_cards[card_index_1], open_card);
@@ -794,12 +815,102 @@ mod tests {
                 .unwrap();
             c_i
         };
-
         uno.execute_move(&UnoMoveEnum::ChooseCard(card_index_2.try_into().unwrap()).into()).unwrap();
         assert_eq!(p2_cards[card_index_2], uno.get_open_card());
         p1_cards.remove(card_index_1);
         p2_cards.remove(card_index_2);
         assert_eq!(uno.get_p_cards(0).unwrap().collect::<Vec<_>>(), p1_cards);
         assert_eq!(uno.get_p_cards(1).unwrap().collect::<Vec<_>>(), p2_cards);
+    }
+
+    #[test]
+    fn test_choose_color() {
+        let mut uno = Uno::new(324385160, PlayerAmount::Two);
+
+        assert_eq!(uno.meta_data.get_all_offsets(), [1, 8, 15, 15, 15]);
+
+        let choose_color_card = uno.cards.iter().enumerate()
+            .find(|(_, card)| **card >> UNO_CARD_KIND_OFF == UNO_CARD_CHOOSE_COLOR_BLACK)
+            .unwrap()
+            .0;
+        uno.cards.swap(1, choose_color_card);
+        let blue_seven_idx = uno.cards.iter().enumerate()
+            .find(|(_, card)| **card == card_num((CardColor::Blue, NumberCardKind::Seven)))
+            .unwrap()
+            .0;
+        uno.cards.swap(7 + 1, blue_seven_idx);
+
+        let p1_cards = uno.get_p_cards(0).unwrap().collect::<Vec<_>>();
+        let p2_cards = uno.get_p_cards(1).unwrap().collect::<Vec<_>>();
+
+        uno.execute_move(&UnoMoveEnum::ChooseCard(0).into()).unwrap();
+        assert_eq!(uno.meta_data.get_current_player(), 0);
+        assert_matches!(uno.execute_move(&UnoMoveEnum::Nothing.into()), Err(UnoMoveErr::ColorChoosingRequired));
+        assert_matches!(uno.execute_move(&UnoMoveEnum::ChooseCard(0).into()), Err(UnoMoveErr::ColorChoosingRequired));
+        uno.execute_move(&UnoMoveEnum::ChooseColor(CardColor::Blue as u8).into()).unwrap();
+        assert_eq!(uno.meta_data.get_current_player(),1);
+        assert!(matches!(uno.execute_move(&UnoMoveEnum::ChooseColor(CardColor::Blue as u8).into()), Err(UnoMoveErr::ColorChoosingNotRequired)));
+        assert!(matches!(uno.execute_move(&UnoMoveEnum::Nothing.into()), Err(UnoMoveErr::NothingNotNecessary)));
+        uno.execute_move(&UnoMoveEnum::ChooseCard(0).into()).unwrap();
+        assert_eq!(p1_cards.into_iter().skip(1).collect::<Vec<_>>(), uno.get_p_cards(0).unwrap().collect::<Vec<_>>());
+        assert_eq!(p2_cards.into_iter().skip(1).collect::<Vec<_>>(), uno.get_p_cards(1).unwrap().collect::<Vec<_>>());
+        {
+            let discard_stack = uno.get_discard_stack_cards().collect::<Vec<_>>();
+
+            assert_eq!(discard_stack.len(), 2);
+            assert_eq!(discard_stack[1] >> UNO_CARD_KIND_OFF, UNO_CARD_CHOOSE_COLOR_BLACK);
+        }
+    }
+
+    #[test]
+    fn test_pull_from_draw_stack() {
+        let mut uno = Uno::new(120321391, PlayerAmount::Three);
+        assert_eq!(uno.meta_data.get_all_offsets(), [1, 8,  15, 22, 22]);
+        uno.cards = initial_cards();
+        uno.meta_data.add_to_all_offsets_starting_at(0, 3);
+        uno.cards.swap(0, 81);
+        assert_eq!(uno.get_open_card(), 3);
+        let p_one_initial = uno.get_p_cards(0).unwrap().collect::<Vec<_>>();
+        uno.meta_data.add_to_all_offsets_starting_at(4, 57 - uno.meta_data.get_all_offsets()[4]);
+        let draw_range = uno.cards[57..=(80 + 1)].to_vec();
+        let offsets_before = uno.meta_data.get_all_offsets();
+        uno.execute_move(&UnoMoveEnum::Nothing.into()).unwrap();
+
+        let p_one_after = uno.get_p_cards(0).unwrap().collect::<Vec<_>>();
+        let expected = p_one_initial.iter().copied().chain(draw_range.iter().copied()).collect::<Vec<_>>();
+        assert_eq!(
+            expected,
+            p_one_after,
+        );
+        let draw_amount = draw_range.len() as u64;
+        let offsets_expected = offsets_before.into_iter().enumerate()
+            .map(|(i, o)| if i > 0 { o + draw_amount } else { o } )
+            .collect::<Vec<_>>();
+        assert_eq!(uno.meta_data.get_all_offsets().as_slice(), offsets_expected.as_slice());
+    }
+
+    #[test]
+    fn test_pull_from_discard_stack() {
+        let mut uno = Uno::new(120321391, PlayerAmount::Four);
+        assert_eq!(uno.meta_data.get_all_offsets(), [1, 8,  15, 22, 29]);
+        uno.cards = initial_cards();
+        uno.meta_data.add_to_all_offsets_starting_at(0, 3);
+        uno.cards.swap(0, 81);
+        rotate_by(&mut uno.cards[54..], 27);
+        assert_eq!(uno.get_open_card(), 3);
+        let p_one_initial = uno.get_p_cards(0).unwrap().collect::<Vec<_>>();
+        rotate_by(&mut uno.cards[1..=(83 + 1)], 83 + 1 - uno.meta_data.get_draw_stack_offset() as usize);
+        uno.meta_data.add_to_all_offsets_starting_at(0, 83 + 1 - uno.meta_data.get_draw_stack_offset());
+        let offsets_before = uno.meta_data.get_all_offsets();
+        uno.execute_move(&UnoMoveEnum::Nothing.into()).unwrap();
+        let draw_range = uno.cards[uno.meta_data.get_draw_stack_offset() as usize..].to_vec();
+
+        let expected = p_one_initial.iter().copied().chain(draw_range.iter().copied()).collect::<Vec<_>>();
+        let p_one_after = uno.get_p_cards(0).unwrap().take(expected.len()).collect::<Vec<_>>();
+        dbg!(card_num_to_card_repr(uno.get_open_card()), card_num_to_card_repr(uno.get_p_cards(0).unwrap().last().unwrap()));
+        assert_eq!(
+            uno.meta_data.get_all_offsets()[0], 1
+        );
+        assert_matches!(uno.execute_move(&UnoMoveEnum::Nothing.into()), Err(UnoMoveErr::NothingNotNecessary));
     }
 }

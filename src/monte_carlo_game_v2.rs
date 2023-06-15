@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use crate::monte_carlo_game::MonteCarloGame;
 
-#[derive(Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum GameState {
     Continue,
     Finished
